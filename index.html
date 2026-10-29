@@ -250,7 +250,14 @@
     const res = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload), redirect: 'follow', cache: 'no-store', credentials: 'omit' });
     if (!res.ok) throw new Error('Network error ' + res.status);
-    const r = await res.json();
+    const text = await res.text();
+    let r;
+    try { r = JSON.parse(text); }
+    catch (e) {
+      const m = text.match(/Script function not found: (\w+)/);
+      throw new Error(m ? 'The Apps Script deployment is still running old code (no ' + m[1] + '). In Apps Script: Deploy → Manage deployments → edit → Version: New version → Deploy.'
+                        : 'The server replied with something other than the Monthly Summary script. Check the Apps Script deployment.');
+    }
     if (r && r.auth === false) { showLogin(r.error); throw new Error('auth'); }
     return r;
   }
@@ -409,7 +416,7 @@
       $('p').value = '';
       if (!r.ok) { $('loginErr').textContent = r.error || 'Sign in failed.'; return; }
       token = r.token; store.set('ms_token', token); showApp();
-    } catch (err) { if (err.message !== 'auth') $('loginErr').textContent = 'Could not reach the server. Check your connection.'; }
+    } catch (err) { if (err.message !== 'auth') $('loginErr').textContent = /^(Network error|Failed to fetch|Load failed|NetworkError)/.test(err.message) || err instanceof TypeError ? 'Could not reach the server. Check your connection.' : err.message; }
     finally { btn.disabled = false; }
   });
 
