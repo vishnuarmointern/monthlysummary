@@ -165,10 +165,28 @@
     .arrow { display: none; } .pick fieldset { flex: 1 1 100%; } .pick .pair select { flex: 1; }
   }
   @media print {
-    header.top, .range .presets, .tools, .pick .b, #themeBtn { display: none !important; }
-    html, body { background: #fff; }
-    .range, .ledger-wrap, .stats { box-shadow: none; }
-    .ledger tfoot td, .ledger thead th { position: static; }
+    @page { size: letter portrait; margin: 12mm; }
+    html, body { background: #fff !important; color: #000; font-size: 10.5px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    header.top, .range, .tools, .ledger td.barc, .ledger th.barc, .exp .chev, .note { display: none !important; }
+    main { max-width: none; padding: 0; }
+    .res-head { margin: 0 0 8px; } .res-head h2 { font-size: 18px; }
+    .stats { grid-template-columns: repeat(4, 1fr) !important; box-shadow: none; margin-bottom: 10px; break-inside: avoid; }
+    .stat { padding: 8px 10px; border-top: 0 !important; border-left: 1px solid var(--line-2) !important; }
+    .stat:first-child { border-left: 0 !important; }
+    .stat .v { font-size: 17px; } .stat .k { font-size: 9px; } .stat .h { font-size: 9.5px; }
+    .ledger-wrap, .orders { overflow: visible !important; max-height: none !important; box-shadow: none; }
+    table.ledger { min-width: 0 !important; width: 100%; table-layout: auto; }
+    .ledger th, .ledger td { padding: 5px 7px; font-size: 10.5px; position: static !important; }
+    .ledger thead th { font-size: 8.5px; letter-spacing: .04em; white-space: normal; }
+    .ledger thead, .ledger tfoot { display: table-row-group; }
+    .ledger tr, .otab tr { break-inside: avoid; }
+    .ledger tr.det { break-inside: auto; } .ledger tr.det > td { display: table-cell; }
+    .exp { padding: 5px 7px; gap: 0; }
+    .ledger tfoot td { padding-top: 7px; padding-bottom: 7px; } .ledger tfoot td:first-child { font-size: 12px; }
+    .ledger tr.det > td { padding: 0 0 8px; }
+    .orders { margin: 0 6px; }
+    .otab th, .otab td { padding: 4px 6px; font-size: 9px; }
+    .otab td.info { min-width: 0; max-width: none; }
   }
 </style>
 </head>
@@ -358,7 +376,10 @@
       if (err.message !== 'auth') $('result').innerHTML = '<div class="placeholder">Could not reach the server. Check your connection and try again.</div>';
     } finally { $('runBtn').disabled = false; }
   }
-  const pickPrimary = cols => cols.find(isMoney) || cols[0] || null;
+  // Headline figure: Net Sales first; never a tax column unless nothing else exists.
+  const PRIMARY = [/net\s*sales/i, /\bnet\b/i, /sub\s*total/i, /sales|revenue/i, /^(?!.*tax).*total/i, /amount|value/i];
+  const pickPrimary = cols => { for (const re of PRIMARY) { const c = cols.find(h => re.test(h)); if (c) return c; }
+    return cols.find(h => isMoney(h) && !/tax|hst|gst|pst|vat/i.test(h)) || cols.find(isMoney) || cols[0] || null; };
 
   // One month's orders: order #, date, then every other filled-in column (text first, amounts last).
   function ordersTable(m) {
