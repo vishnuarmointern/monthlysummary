@@ -416,7 +416,7 @@
       $('p').value = '';
       if (!r.ok) { $('loginErr').textContent = r.error || 'Sign in failed.'; return; }
       token = r.token; store.set('ms_token', token); showApp();
-    } catch (err) { if (err.message !== 'auth') $('loginErr').textContent = /^(Network error|Failed to fetch|Load failed|NetworkError)/.test(err.message) || err instanceof TypeError ? 'Could not reach the server. Check your connection.' : err.message; }
+    } catch (err) { if (err.message !== 'auth') $('loginErr').textContent = /^(Network error|Failed to fetch|Load failed|NetworkError)/.test(err.message) || err instanceof TypeError ? 'No usable reply from the Apps Script. If you just changed the script: Deploy → Manage deployments → edit → New version, with access set to Anyone.' : err.message; }
     finally { btn.disabled = false; }
   });
 
