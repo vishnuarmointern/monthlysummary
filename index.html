@@ -132,6 +132,24 @@
   .ledger tfoot td { background: var(--paper); border-top: 2px solid var(--ink); font-weight: 700; padding-top: 13px; padding-bottom: 13px; position: sticky; bottom: 0; }
   .ledger tfoot td:first-child { font-family: var(--serif); font-size: 16px; font-weight: 600; }
   .ledger tfoot tr.avg td { border-top: 0; font-weight: 500; color: var(--muted); padding-top: 0; position: static; }
+  .ledger td.mo { padding: 0; }
+  .exp { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 16px; cursor: pointer; font-weight: 600; }
+  .exp:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .exp .chev { width: 16px; height: 16px; flex: none; color: var(--muted); transition: transform .15s; }
+  .exp[aria-expanded="true"] .chev { transform: rotate(90deg); color: var(--accent-ink); }
+  .exp:disabled { cursor: default; } .exp:disabled .chev { opacity: .3; }
+  .ledger tr.open > td { background: var(--accent-soft); }
+  .ledger tr.det > td { padding: 0 0 14px; background: var(--accent-soft); position: static; text-align: left; white-space: normal; }
+  .orders { margin: 0 14px; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; overflow: auto; max-height: 460px; }
+  table.otab { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .otab th, .otab td { padding: 8px 12px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--line-2); }
+  .otab th { position: sticky; top: 0; background: var(--paper); font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); z-index: 1; }
+  .otab td.r, .otab th.r { text-align: right; font-variant-numeric: tabular-nums; }
+  .otab td.on { font-weight: 700; color: var(--accent-ink); }
+  .otab td.dt { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .otab td.info { white-space: normal; min-width: 120px; max-width: 280px; color: var(--ink-2); }
+  .otab tr:last-child td { border-bottom: 0; }
+  .otab tbody tr:hover td { background: var(--hover); }
   .note { color: var(--warn); background: var(--warn-soft); border-radius: 9px; padding: 8px 12px; font-size: 13px; margin-top: 12px; }
   .placeholder { text-align: center; color: var(--muted); padding: 60px 20px; border: 1px dashed var(--line); border-radius: var(--r); }
   .skeleton { height: 46px; border-radius: 8px; margin: 8px; background: linear-gradient(90deg, var(--row), var(--hover), var(--row)); background-size: 200% 100%; animation: sk 1.2s infinite linear; }
@@ -244,6 +262,7 @@
 
   let token = store.get('ms_token');
   let meta = null, last = null, barCol = null;
+  const openMonths = new Set();
 
   async function api(payload) {
     // text/plain avoids a CORS preflight, which Apps Script doesn't support.
@@ -330,6 +349,7 @@
     try {
       const r = await api({ action: 'summary', token, from, to });
       if (!r.ok) { $('result').innerHTML = `<div class="placeholder">${esc(r.error || 'Could not build the summary.')}</div>`; return; }
+      if (!last || last.from !== r.from || last.to !== r.to) openMonths.clear();
       last = r;
       if (!barCol || r.columns.indexOf(barCol) < 0) barCol = pickPrimary(r.columns);
       render();
@@ -339,6 +359,21 @@
     } finally { $('runBtn').disabled = false; }
   }
   const pickPrimary = cols => cols.find(isMoney) || cols[0] || null;
+
+  // One month's orders: order #, date, then every other filled-in column (text first, amounts last).
+  function ordersTable(m) {
+    const r = last, F = r.fields || [], di = r.dateIdx, oi = r.orderIdx, num = r.numIdx || [];
+    const used = i => F[i] && m.orders.some(row => row[i] !== '' && row[i] != null);
+    const info = F.map((h, i) => i).filter(i => i !== di && i !== oi && num.indexOf(i) < 0 && used(i));
+    const amts = num.filter(used);
+    const head = `<tr>${oi >= 0 ? `<th>${esc(F[oi])}</th>` : '<th>#</th>'}<th>${esc(F[di] || 'Date')}</th>` +
+      info.map(i => `<th>${esc(F[i])}</th>`).join('') + amts.map(i => `<th class="r">${esc(F[i])}</th>`).join('') + '</tr>';
+    const val = (v, h) => { const n = typeof v === 'number' ? v : Number(String(v).replace(/[$,\s]/g, '')); return v === '' ? '—' : isFinite(n) ? fmt(n, h) : String(v); };
+    const rows = m.orders.map((row, k) => `<tr>${oi >= 0 ? `<td class="on">${esc(row[oi] === '' ? '—' : row[oi])}</td>` : `<td class="on">${k + 1}</td>`}` +
+      `<td class="dt">${esc(row[di])}</td>` + info.map(i => `<td class="info">${esc(row[i])}</td>`).join('') +
+      amts.map(i => `<td class="r">${esc(val(row[i], F[i]))}</td>`).join('') + '</tr>').join('');
+    return `<div class="orders"><table class="otab"><thead>${head}</thead><tbody>${rows}</tbody></table></div>`;
+  }
 
   function render() {
     const r = last, cols = r.columns, n = r.months.length;
@@ -369,10 +404,14 @@
       if (multiYear && y !== prevY) { body += `<tr class="yr"><td colspan="${cols.length + 3}">${y}</td></tr>`; prevY = y; }
       const v = bi < 0 ? m.count : m.sums[bi];
       const w = maxBar ? Math.max(0, Math.round(Math.abs(v) / maxBar * 100)) : 0;
-      body += `<tr class="${m.count ? '' : 'empty'}"><td class="mo">${MONTHS[+m.month.slice(5) - 1]}${multiYear ? '' : ` <small>${y}</small>`}</td>
+      const isOpen = openMonths.has(m.month) && m.count > 0;
+      body += `<tr class="${m.count ? '' : 'empty'}${isOpen ? ' open' : ''}"><td class="mo"><button type="button" class="exp" data-m="${m.month}" aria-expanded="${isOpen}" ${m.count ? '' : 'disabled'} title="${m.count ? 'Show orders' : 'No orders'}">
+        <svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4l4 4-4 4"/></svg>
+        <span>${MONTHS[+m.month.slice(5) - 1]}${multiYear ? '' : ` <small>${y}</small>`}</span></button></td>
         <td class="num">${m.count.toLocaleString('en-CA')}</td>` +
         cols.map((c, i) => `<td class="num">${m.count ? esc(fmt(m.sums[i], c)) : '—'}</td>`).join('') +
         `<td class="barc"><div class="bar"><i style="width:${w}%"></i></div></td></tr>`;
+      if (isOpen) body += `<tr class="det"><td colspan="${cols.length + 3}">${ordersTable(m)}</td></tr>`;
     });
     const foot = `<tr><td>Grand total</td><td class="num">${r.total.count.toLocaleString('en-CA')}</td>` +
       cols.map((c, i) => `<td class="num">${esc(fmt(r.total.sums[i], c))}</td>`).join('') + `<td class="barc"></td></tr>` +
@@ -380,10 +419,13 @@
       cols.map((c, i) => `<td class="num">${esc(fmt(r.total.sums[i] / n, c))}</td>`).join('') + `<td class="barc"></td></tr>`;
 
     const range = r.from === r.to ? label(r.from) : label(r.from) + ' – ' + label(r.to);
+    const withOrders = r.months.filter(m => m.count > 0);
+    const allOpen = withOrders.length > 0 && withOrders.every(m => openMonths.has(m.month));
     $('result').innerHTML = `
       <div class="res-head"><h2>${esc(range)}</h2>
         <span class="meta">${esc(r.dateColumn ? 'Grouped by “' + r.dateColumn + '”' : '')}</span>
         <div class="tools">
+          <button class="b lbl" id="expBtn" type="button" title="${allOpen ? 'Collapse all months' : 'Show orders for every month'}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${allOpen ? '<path d="M7 14l5-5 5 5"/>' : '<path d="M7 10l5 5 5-5"/>'}</svg><span>${allOpen ? 'Collapse all' : 'Expand all'}</span></button>
           <button class="b lbl" id="csvBtn" type="button" title="Download CSV"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span>CSV</span></button>
           <button class="b lbl" id="printBtn" type="button" title="Print"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M7 9V3h10v6M7 17H4v-7h16v7h-3M7 14h10v7H7z"/></svg><span>Print</span></button>
         </div></div>
@@ -392,6 +434,11 @@
       ${r.undated ? `<div class="note">${r.undated.toLocaleString('en-CA')} ${r.undated === 1 ? 'row in the sheet has' : 'rows in the sheet have'} no readable date and aren't counted in any month.</div>` : ''}
       ${cols.length ? '' : '<div class="note">No numeric columns were found, so only entry counts are shown.</div>'}`;
     $('csvBtn').addEventListener('click', csv);
+    $('expBtn').addEventListener('click', () => { if (allOpen) openMonths.clear(); else withOrders.forEach(m => openMonths.add(m.month)); render(); });
+    document.querySelectorAll('.exp[data-m]').forEach(b => b.addEventListener('click', () => {
+      const k = b.dataset.m; openMonths.has(k) ? openMonths.delete(k) : openMonths.add(k); render();
+      const nb = document.querySelector(`.exp[data-m="${k}"]`); if (nb) nb.focus();
+    }));
     $('printBtn').addEventListener('click', () => window.print());
     document.querySelectorAll('.ledger thead [data-bar]').forEach(b => b.addEventListener('click', () => { barCol = b.dataset.bar || null; render(); }));
   }
