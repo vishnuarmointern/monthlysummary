@@ -150,6 +150,37 @@
   .otab td.info { white-space: normal; min-width: 120px; max-width: 280px; color: var(--ink-2); }
   .otab tr:last-child td { border-bottom: 0; }
   .otab tbody tr:hover td { background: var(--hover); }
+  /* ---------- View switch + part view ---------- */
+  .viewbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 26px 0 0; }
+  .seg { display: inline-flex; background: var(--bar-track); border-radius: 11px; padding: 3px; gap: 2px; }
+  .seg button { all: unset; display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 9px; font-weight: 600; font-size: 13.5px; color: var(--muted); cursor: pointer; }
+  .seg button:hover { color: var(--ink); }
+  .seg button[aria-selected="true"] { background: var(--paper); color: var(--accent-ink); box-shadow: 0 1px 3px rgba(29,27,22,.12); }
+  .seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .cadtag { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--accent-ink); background: var(--accent-soft); border-radius: 99px; padding: 4px 10px; }
+  .viewbar + .res-head { margin-top: 18px; }
+  .ptools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0 0 12px; }
+  .search { position: relative; flex: 1 1 280px; max-width: 420px; }
+  .search svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--faint); }
+  .search input { width: 100%; height: 40px; border: 1px solid var(--line); border-radius: 9px; background: var(--paper); padding: 0 12px 0 36px; }
+  .search input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+  .ptools .count { color: var(--muted); font-size: 13px; }
+  .ledger.ptab th.l, .ledger.ptab td.pdesc { text-align: left; }
+  .ledger.ptab td.pdesc { white-space: normal; color: var(--ink-2); min-width: 220px; max-width: 360px; font-size: 13px; }
+  .ledger.ptab td.pcell .exp span { font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+  .otab td.onb { padding: 0; }
+  .otab td.onb .exp { padding: 8px 12px; gap: 6px; font-weight: 700; color: var(--accent-ink); }
+  .otab td.onb .exp .chev { width: 13px; height: 13px; }
+  .otab tr.open > td { background: var(--hover); }
+  .otab tr.odet > td { padding: 2px 10px 12px 26px; background: var(--hover); white-space: normal; }
+  .otab tfoot td { font-weight: 700; border-top: 1px solid var(--line); border-bottom: 0; background: var(--paper); }
+  .orders.lines { margin: 0; border-color: color-mix(in srgb, var(--accent) 30%, var(--line)); max-height: none; }
+  .ltab th { background: var(--accent-soft); }
+  .otab td.pn { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .otab td.sp { font-weight: 600; }
+  .otab td.cur { color: var(--muted); font-size: 12px; }
+  .empty-lines { padding: 12px 14px; color: var(--muted); font-size: 13px; }
+  .recon { padding: 8px 12px; font-size: 12px; color: var(--warn); background: var(--warn-soft); border-top: 1px solid var(--line-2); }
   .note { color: var(--warn); background: var(--warn-soft); border-radius: 9px; padding: 8px 12px; font-size: 13px; margin-top: 12px; }
   .placeholder { text-align: center; color: var(--muted); padding: 60px 20px; border: 1px dashed var(--line); border-radius: var(--r); }
   .skeleton { height: 46px; border-radius: 8px; margin: 8px; background: linear-gradient(90deg, var(--row), var(--hover), var(--row)); background-size: 200% 100%; animation: sk 1.2s infinite linear; }
@@ -167,7 +198,10 @@
   @media print {
     @page { size: letter portrait; margin: 12mm; }
     html, body { background: #fff !important; color: #000; font-size: 10.5px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    header.top, .range, .tools, .ledger td.barc, .ledger th.barc, .exp .chev, .note { display: none !important; }
+    header.top, .range, .tools, .ledger td.barc, .ledger th.barc, .exp .chev, .note, .seg, .ptools { display: none !important; }
+    .viewbar { margin: 0 0 4px; } .cadtag { padding: 0; background: none; }
+    .otab td.onb .exp { padding: 4px 6px; } .otab tr.odet > td { padding: 2px 4px 6px 12px; } .recon { font-size: 9px; }
+    .ledger.ptab td.pdesc { min-width: 0; font-size: 9.5px; } .otab td.cur { font-size: 8.5px; }
     main { max-width: none; padding: 0; }
     .res-head { margin: 0 0 8px; } .res-head h2 { font-size: 18px; }
     .stats { grid-template-columns: repeat(4, 1fr) !important; box-shadow: none; margin-bottom: 10px; break-inside: avoid; }
@@ -280,7 +314,10 @@
 
   let token = store.get('ms_token');
   let meta = null, last = null, barCol = null;
-  const openMonths = new Set();
+  let view = store.get('ms_view') === 'part' ? 'part' : 'month';
+  let partQuery = '', partSort = store.get('ms_psort') || 'units';
+  let byOrder = {}, parts = [];
+  const openMonths = new Set(), openOrders = new Set(), openParts = new Set();
 
   async function api(payload) {
     // text/plain avoids a CORS preflight, which Apps Script doesn't support.
@@ -367,11 +404,11 @@
     try {
       const r = await api({ action: 'summary', token, from, to });
       if (!r.ok) { $('result').innerHTML = `<div class="placeholder">${esc(r.error || 'Could not build the summary.')}</div>`; return; }
-      if (!last || last.from !== r.from || last.to !== r.to) openMonths.clear();
-      last = r;
+      if (!last || last.from !== r.from || last.to !== r.to) { openMonths.clear(); openOrders.clear(); openParts.clear(); }
+      last = r; prepare(r);
       if (!barCol || r.columns.indexOf(barCol) < 0) barCol = pickPrimary(r.columns);
       render();
-      $('sync').textContent = 'Sheet: ' + (r.sheet || '—') + ' · updated ' + new Date(r.updated || Date.now()).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      $('sync').textContent = 'Sheets: ' + (r.sheet || '—') + (r.linesSheet ? ' + ' + r.linesSheet : '') + ' · updated ' + new Date(r.updated || Date.now()).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     } catch (err) {
       if (err.message !== 'auth') $('result').innerHTML = '<div class="placeholder">Could not reach the server. Check your connection and try again.</div>';
     } finally { $('runBtn').disabled = false; }
@@ -381,22 +418,91 @@
   const pickPrimary = cols => { for (const re of PRIMARY) { const c = cols.find(h => re.test(h)); if (c) return c; }
     return cols.find(h => isMoney(h) && !/tax|hst|gst|pst|vat/i.test(h)) || cols.find(isMoney) || cols[0] || null; };
 
-  // One month's orders: order #, date, then every other filled-in column (text first, amounts last).
+  // ---------- Shared helpers ----------
+  const cad = v => Number(v || 0).toLocaleString('en-CA', { style: 'currency', currency: 'CAD', currencyDisplay: 'narrowSymbol', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const int = v => Number(v || 0).toLocaleString('en-CA', { maximumFractionDigits: 2 });
+  const pct = v => v ? int(v) + '%' : '—';
+  const chev = '<svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4l4 4-4 4"/></svg>';
+  const toggle = (set, k) => set.has(k) ? set.delete(k) : set.add(k);
+  const btn = (act, k, open, inner, title, disabled) =>
+    `<button type="button" class="exp" data-act="${act}" data-k="${esc(k)}" aria-expanded="${!!open}" ${disabled ? 'disabled' : ''} title="${esc(title)}">${chev}<span>${inner}</span></button>`;
+  // line: [orderKey, date, part, desc, cust, qty, unitCAD, disc, saleCAD, currency, rate, inRange]
+  const L = { key: 0, date: 1, part: 2, desc: 3, cust: 4, qty: 5, unit: 6, disc: 7, sale: 8, cur: 9, rate: 10, inr: 11 };
+
+  function prepare(r) {
+    byOrder = {}; parts = [];
+    if (!r.lines) return;
+    r.lines.forEach(l => { (byOrder[l[L.key]] = byOrder[l[L.key]] || []).push(l); });
+    const map = {};
+    r.lines.filter(l => l[L.inr]).forEach(l => {
+      const p = l[L.part] || '(no part #)';
+      const e = map[p] = map[p] || { part: p, desc: '', qty: 0, sale: 0, orders: {}, custs: new Set() };
+      e.qty += l[L.qty]; e.sale += l[L.sale]; if (l[L.cust]) e.custs.add(l[L.cust]);
+      if (l[L.desc]) { e.descs = e.descs || {}; e.descs[l[L.desc]] = (e.descs[l[L.desc]] || 0) + 1; }
+      const o = e.orders[l[L.key]] = e.orders[l[L.key]] || { key: l[L.key], date: l[L.date], cust: l[L.cust], qty: 0, gross: 0, sale: 0, discs: new Set(), cur: l[L.cur], rate: l[L.rate] };
+      o.qty += l[L.qty]; o.sale += l[L.sale]; o.gross += l[L.qty] * l[L.unit]; o.discs.add(l[L.disc]);
+    });
+    parts = Object.values(map).map(e => Object.assign(e, { desc: e.descs ? Object.keys(e.descs).sort((a, b) => e.descs[b] - e.descs[a])[0] : '', orderList: Object.values(e.orders).sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.key).localeCompare(String(b.key), undefined, { numeric: true })) }));
+  }
+
+  // ---------- Shell: view switch + heading + tools ----------
+  function shell(tools, sub) {
+    const r = last, range = r.from === r.to ? label(r.from) : label(r.from) + ' – ' + label(r.to);
+    const cur = r.currency || {};
+    const curNote = cur.mode === 'convert' && cur.converted ? ` · ${cur.converted.toLocaleString('en-CA')} foreign-currency order${cur.converted === 1 ? '' : 's'} converted at the order's rate` : '';
+    return `<div class="viewbar"><div class="seg" role="tablist" aria-label="Organize by">
+        <button type="button" role="tab" data-act="view" data-k="month" aria-selected="${view === 'month'}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>By month</button>
+        <button type="button" role="tab" data-act="view" data-k="part" aria-selected="${view === 'part'}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg>By part number</button>
+      </div><span class="cadtag">All amounts in CAD</span></div>
+      <div class="res-head"><h2>${esc(range)}</h2><span class="meta">${esc(sub + curNote)}</span>
+        <div class="tools">${tools}
+          <button class="b lbl" data-act="csv" type="button" title="Download CSV"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span>CSV</span></button>
+          <button class="b lbl" data-act="print" type="button" title="Print"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M7 9V3h10v6M7 17H4v-7h16v7h-3M7 14h10v7H7z"/></svg><span>Print</span></button>
+        </div></div>`;
+  }
+
+  function render() { view === 'part' ? renderPartView() : renderMonthView(); }
+
+  // ---------- Parts inside one order ----------
+  function orderLines(key, netVal) {
+    const ls = byOrder[key] || [];
+    if (!ls.length) return '<div class="orders lines empty-lines">No part lines found for this order in the parts sheet.</div>';
+    const foreign = ls.some(l => l[L.cur] !== 'CAD');
+    const q = ls.reduce((a, l) => a + l[L.qty], 0), t = ls.reduce((a, l) => a + l[L.sale], 0);
+    const rows = ls.map(l => `<tr><td class="pn">${esc(l[L.part] || '—')}</td><td class="info">${esc(l[L.desc])}</td><td class="r">${int(l[L.qty])}</td>
+      <td class="r">${cad(l[L.unit])}</td><td class="r">${pct(l[L.disc])}</td><td class="r sp">${cad(l[L.sale])}</td>${foreign ? `<td class="cur">${l[L.cur] === 'CAD' ? 'CAD' : esc(l[L.cur]) + ' · rate ' + int(l[L.rate])}</td>` : ''}</tr>`).join('');
+    const diff = netVal == null ? null : Math.round((netVal - t) * 100) / 100;
+    return `<div class="orders lines"><table class="otab ltab"><thead><tr><th>Part #</th><th>Description</th><th class="r">Qty</th><th class="r">Unit price</th><th class="r">Disc.</th><th class="r">Sale price</th>${foreign ? '<th>Billed in</th>' : ''}</tr></thead>
+      <tbody>${rows}</tbody><tfoot><tr><td colspan="2">${ls.length} part line${ls.length === 1 ? '' : 's'}</td><td class="r">${int(q)}</td><td></td><td></td><td class="r">${cad(t)}</td>${foreign ? '<td></td>' : ''}</tr></tfoot></table>
+      ${diff !== null && Math.abs(diff) >= 1 ? `<div class="recon">Order net sales ${cad(netVal)} · parts total ${cad(t)} · difference ${cad(diff)}</div>` : ''}</div>`;
+  }
+
+  // ---------- Orders inside one month ----------
   function ordersTable(m) {
-    const r = last, F = r.fields || [], di = r.dateIdx, oi = r.orderIdx, num = r.numIdx || [];
+    const r = last, F = r.fields || [], di = r.dateIdx, oi = r.orderIdx, num = r.numIdx || [], K = F.length;
     const used = i => F[i] && m.orders.some(row => row[i] !== '' && row[i] != null);
-    const info = F.map((h, i) => i).filter(i => i !== di && i !== oi && num.indexOf(i) < 0 && used(i));
-    const amts = num.filter(used);
-    const head = `<tr>${oi >= 0 ? `<th>${esc(F[oi])}</th>` : '<th>#</th>'}<th>${esc(F[di] || 'Date')}</th>` +
+    const info = F.map((h, i) => i).filter(i => i !== di && i !== oi && num.indexOf(i) < 0 && used(i) && !/^(currency|currencyrate|exchangerate|fxrate|rate|refno)$/.test(String(F[i]).toLowerCase().replace(/[^a-z]/g, '')));
+    const amts = num.filter(i => used(i) && !/rate$/i.test(F[i]));
+    const netI = num.find(i => /net/i.test(F[i]));
+    const hasLines = !!r.lines;
+    const cols = 2 + (hasLines ? 1 : 0) + info.length + amts.length;
+    const head = `<tr><th>${oi >= 0 ? esc(F[oi]) : '#'}</th><th>${esc(F[di] || 'Date')}</th>${hasLines ? '<th class="r">Parts</th>' : ''}` +
       info.map(i => `<th>${esc(F[i])}</th>`).join('') + amts.map(i => `<th class="r">${esc(F[i])}</th>`).join('') + '</tr>';
     const val = (v, h) => { const n = typeof v === 'number' ? v : Number(String(v).replace(/[$,\s]/g, '')); return v === '' ? '—' : isFinite(n) ? fmt(n, h) : String(v); };
-    const rows = m.orders.map((row, k) => `<tr>${oi >= 0 ? `<td class="on">${esc(row[oi] === '' ? '—' : row[oi])}</td>` : `<td class="on">${k + 1}</td>`}` +
-      `<td class="dt">${esc(row[di])}</td>` + info.map(i => `<td class="info">${esc(row[i])}</td>`).join('') +
-      amts.map(i => `<td class="r">${esc(val(row[i], F[i]))}</td>`).join('') + '</tr>').join('');
+    const rows = m.orders.map((row, k) => {
+      const key = oi >= 0 ? row[K] : '', ls = byOrder[key] || [], open = openOrders.has(key) && ls.length;
+      const label = esc(oi >= 0 ? (row[oi] === '' ? '—' : row[oi]) : k + 1);
+      const first = oi >= 0 && hasLines ? btn('order', key, open, label, ls.length ? 'Show parts on this order' : 'No part lines found', !ls.length) : label;
+      let h = `<tr class="${open ? 'open' : ''}"><td class="on${oi >= 0 && hasLines ? ' onb' : ''}">${first}</td><td class="dt">${esc(row[di])}</td>${hasLines ? `<td class="r">${ls.length || '—'}</td>` : ''}` +
+        info.map(i => `<td class="info">${esc(row[i])}</td>`).join('') + amts.map(i => `<td class="r">${esc(val(row[i], F[i]))}</td>`).join('') + '</tr>';
+      if (open) { const nv = netI !== undefined ? Number(row[netI]) : null; h += `<tr class="odet"><td colspan="${cols}">${orderLines(key, isFinite(nv) ? nv : null)}</td></tr>`; }
+      return h;
+    }).join('');
     return `<div class="orders"><table class="otab"><thead>${head}</thead><tbody>${rows}</tbody></table></div>`;
   }
 
-  function render() {
+  // ---------- View 1: by month ----------
+  function renderMonthView() {
     const r = last, cols = r.columns, n = r.months.length;
     const bi = cols.indexOf(barCol);
     const withData = r.months.filter(m => m.count > 0).length;
@@ -409,13 +515,13 @@
 
     const stats = `<div class="stats">
       <div class="stat"><div class="k">Months</div><div class="v num">${n}</div><div class="h">${withData} with entries</div></div>
-      <div class="stat"><div class="k">Entries</div><div class="v num">${r.total.count.toLocaleString('en-CA')}</div><div class="h">rows dated in range</div></div>
-      <div class="stat"><div class="k" title="${esc(primName)}">${esc(primName)} total</div><div class="v num" title="${esc(f(primTotal))}">${esc(f(primTotal))}</div><div class="h">avg ${esc(s(primTotal / n))} / month</div></div>
+      <div class="stat"><div class="k">Orders</div><div class="v num">${r.total.count.toLocaleString('en-CA')}</div><div class="h">avg ${(r.total.count / n).toLocaleString('en-CA', { maximumFractionDigits: 1 })} / month</div></div>
+      <div class="stat"><div class="k" title="${esc(primName)}">${esc(primName)} total</div><div class="v num" title="${esc(f(primTotal))}">${esc(f(primTotal))}</div><div class="h">avg ${esc(s(primTotal / n))} / month${bi >= 0 && r.total.count ? ' · ' + esc(s(primTotal / r.total.count)) + ' / order' : ''}</div></div>
       <div class="stat"><div class="k">Best month</div><div class="v" style="font-size:20px;padding-top:4px">${best && best.v > 0 ? esc(label(best.m)) : '—'}</div><div class="h num">${best && best.v > 0 ? esc(f(best.v)) : 'no entries'}</div></div>
     </div>`;
 
-    const head = `<tr><th scope="col">Month</th><th scope="col" class="${bi < 0 ? 'sel' : ''}"><button type="button" data-bar="">Entries</button></th>` +
-      cols.map(c => `<th scope="col" class="${c === barCol ? 'sel' : ''}"><button type="button" data-bar="${esc(c)}" title="Show bars for ${esc(c)}">${esc(c)}</button></th>`).join('') +
+    const head = `<tr><th scope="col">Month</th><th scope="col" class="${bi < 0 ? 'sel' : ''}"><button type="button" data-act="bar" data-k="">Orders</button></th>` +
+      cols.map(c => `<th scope="col" class="${c === barCol ? 'sel' : ''}"><button type="button" data-act="bar" data-k="${esc(c)}" title="Show bars for ${esc(c)}">${esc(c)}</button></th>`).join('') +
       `<th scope="col" class="barc" aria-label="Share of ${esc(primName)}"></th></tr>`;
 
     let body = '', prevY = null;
@@ -426,9 +532,7 @@
       const v = bi < 0 ? m.count : m.sums[bi];
       const w = maxBar ? Math.max(0, Math.round(Math.abs(v) / maxBar * 100)) : 0;
       const isOpen = openMonths.has(m.month) && m.count > 0;
-      body += `<tr class="${m.count ? '' : 'empty'}${isOpen ? ' open' : ''}"><td class="mo"><button type="button" class="exp" data-m="${m.month}" aria-expanded="${isOpen}" ${m.count ? '' : 'disabled'} title="${m.count ? 'Show orders' : 'No orders'}">
-        <svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4l4 4-4 4"/></svg>
-        <span>${MONTHS[+m.month.slice(5) - 1]}${multiYear ? '' : ` <small>${y}</small>`}</span></button></td>
+      body += `<tr class="${m.count ? '' : 'empty'}${isOpen ? ' open' : ''}"><td class="mo">${btn('month', m.month, isOpen, `${MONTHS[+m.month.slice(5) - 1]}${multiYear ? '' : ` <small>${y}</small>`}`, m.count ? 'Show orders' : 'No orders', !m.count)}</td>
         <td class="num">${m.count.toLocaleString('en-CA')}</td>` +
         cols.map((c, i) => `<td class="num">${m.count ? esc(fmt(m.sums[i], c)) : '—'}</td>`).join('') +
         `<td class="barc"><div class="bar"><i style="width:${w}%"></i></div></td></tr>`;
@@ -439,39 +543,111 @@
       `<tr class="avg"><td>Monthly average</td><td class="num">${(r.total.count / n).toLocaleString('en-CA', { maximumFractionDigits: 1 })}</td>` +
       cols.map((c, i) => `<td class="num">${esc(fmt(r.total.sums[i] / n, c))}</td>`).join('') + `<td class="barc"></td></tr>`;
 
-    const range = r.from === r.to ? label(r.from) : label(r.from) + ' – ' + label(r.to);
     const withOrders = r.months.filter(m => m.count > 0);
     const allOpen = withOrders.length > 0 && withOrders.every(m => openMonths.has(m.month));
-    $('result').innerHTML = `
-      <div class="res-head"><h2>${esc(range)}</h2>
-        <span class="meta">${esc(r.dateColumn ? 'Grouped by “' + r.dateColumn + '”' : '')}</span>
-        <div class="tools">
-          <button class="b lbl" id="expBtn" type="button" title="${allOpen ? 'Collapse all months' : 'Show orders for every month'}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${allOpen ? '<path d="M7 14l5-5 5 5"/>' : '<path d="M7 10l5 5 5-5"/>'}</svg><span>${allOpen ? 'Collapse all' : 'Expand all'}</span></button>
-          <button class="b lbl" id="csvBtn" type="button" title="Download CSV"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span>CSV</span></button>
-          <button class="b lbl" id="printBtn" type="button" title="Print"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M7 9V3h10v6M7 17H4v-7h16v7h-3M7 14h10v7H7z"/></svg><span>Print</span></button>
-        </div></div>
+    const tools = `<button class="b lbl" data-act="expand" type="button" title="${allOpen ? 'Collapse all months' : 'Show orders for every month'}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${allOpen ? '<path d="M7 14l5-5 5 5"/>' : '<path d="M7 10l5 5 5-5"/>'}</svg><span>${allOpen ? 'Collapse all' : 'Expand all'}</span></button>`;
+    $('result').innerHTML = shell(tools, r.dateColumn ? 'Grouped by “' + r.dateColumn + '” · click a month for its orders, then an order for its parts' : '') + `
       ${stats}
       <div class="ledger-wrap"><table class="ledger"><thead>${head}</thead><tbody>${body}</tbody><tfoot>${foot}</tfoot></table></div>
       ${r.undated ? `<div class="note">${r.undated.toLocaleString('en-CA')} ${r.undated === 1 ? 'row in the sheet has' : 'rows in the sheet have'} no readable date and aren't counted in any month.</div>` : ''}
-      ${cols.length ? '' : '<div class="note">No numeric columns were found, so only entry counts are shown.</div>'}`;
-    $('csvBtn').addEventListener('click', csv);
-    $('expBtn').addEventListener('click', () => { if (allOpen) openMonths.clear(); else withOrders.forEach(m => openMonths.add(m.month)); render(); });
-    document.querySelectorAll('.exp[data-m]').forEach(b => b.addEventListener('click', () => {
-      const k = b.dataset.m; openMonths.has(k) ? openMonths.delete(k) : openMonths.add(k); render();
-      const nb = document.querySelector(`.exp[data-m="${k}"]`); if (nb) nb.focus();
-    }));
-    $('printBtn').addEventListener('click', () => window.print());
-    document.querySelectorAll('.ledger thead [data-bar]').forEach(b => b.addEventListener('click', () => { barCol = b.dataset.bar || null; render(); }));
+      ${r.lines ? '' : `<div class="note">Part lines couldn't be loaded${r.linesError ? ' (' + esc(r.linesError) + ')' : ''}, so orders can't show their parts.</div>`}`;
   }
+
+  // ---------- View 2: by part number ----------
+  function renderPartView() {
+    const r = last;
+    if (!r.lines) {
+      $('result').innerHTML = shell('', '') + `<div class="placeholder">The parts sheet couldn't be read${r.linesError ? ': ' + esc(r.linesError) : ''}.<br>Check LINES_SPREADSHEET_ID and LINES_SHEET_NAME in the Apps Script, and that the script's account can open the sheet.</div>`;
+      return;
+    }
+    const allOrders = new Set(), allCusts = new Set(); let units = 0, sales = 0;
+    r.lines.filter(l => l[L.inr]).forEach(l => { allOrders.add(l[L.key]); if (l[L.cust]) allCusts.add(l[L.cust]); units += l[L.qty]; sales += l[L.sale]; });
+    const top = parts.slice().sort((a, b) => b.qty - a.qty)[0];
+    const stats = `<div class="stats">
+      <div class="stat"><div class="k">Part numbers</div><div class="v num">${parts.length.toLocaleString('en-CA')}</div><div class="h">${allCusts.size.toLocaleString('en-CA')} customers</div></div>
+      <div class="stat"><div class="k">Units ordered</div><div class="v num">${int(units)}</div><div class="h">across ${allOrders.size.toLocaleString('en-CA')} orders</div></div>
+      <div class="stat"><div class="k">Part sales total</div><div class="v num">${cad(sales)}</div><div class="h">avg ${cad(allOrders.size ? sales / allOrders.size : 0)} / order</div></div>
+      <div class="stat"><div class="k">Most ordered</div><div class="v" style="font-size:18px;padding-top:5px">${top ? esc(top.part) : '—'}</div><div class="h">${top ? int(top.qty) + ' units · ' + cad(top.sale) : 'no parts'}</div></div>
+    </div>`;
+    const ptools = `<div class="ptools"><div class="search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="pq" type="search" placeholder="Search part # or description…" value="${esc(partQuery)}" autocomplete="off" aria-label="Search parts"></div>
+      <select class="s" id="psort" aria-label="Sort parts">
+        ${[['units', 'Most units'], ['sales', 'Highest sales'], ['orders', 'Most orders'], ['part', 'Part # A–Z']].map(([v, t]) => `<option value="${v}" ${partSort === v ? 'selected' : ''}>Sort: ${t}</option>`).join('')}
+      </select><span class="count" id="pcount"></span></div>`;
+    $('result').innerHTML = shell('', `Grouped by part number · ${parts.length.toLocaleString('en-CA')} parts · click a part for the orders that bought it`) + stats + ptools + '<div id="pbody"></div>';
+    renderParts();
+  }
+
+  function renderParts() {
+    const q = partQuery.trim().toLowerCase();
+    let list = parts.filter(p => !q || p.part.toLowerCase().includes(q) || (p.desc || '').toLowerCase().includes(q));
+    const sorters = { units: (a, b) => b.qty - a.qty, sales: (a, b) => b.sale - a.sale, orders: (a, b) => b.orderList.length - a.orderList.length,
+                      part: (a, b) => a.part.localeCompare(b.part, undefined, { numeric: true }) };
+    list.sort((a, b) => sorters[partSort](a, b) || a.part.localeCompare(b.part, undefined, { numeric: true }));
+    const maxS = list.reduce((a, p) => Math.max(a, Math.abs(p.sale)), 0);
+    const C = 9;
+    let body = '';
+    list.forEach(p => {
+      const open = openParts.has(p.part);
+      body += `<tr class="${open ? 'open' : ''}"><td class="mo pcell">${btn('part', p.part, open, esc(p.part), 'Show orders for this part')}</td>
+        <td class="pdesc">${esc(p.desc)}</td><td class="num">${int(p.qty)}</td><td class="num">${p.orderList.length}</td><td class="num">${p.custs.size}</td>
+        <td class="num">${p.qty ? cad(p.sale / p.qty) : '—'}</td><td class="num">${cad(p.sale)}</td>
+        <td class="barc"><div class="bar"><i style="width:${maxS ? Math.round(Math.abs(p.sale) / maxS * 100) : 0}%"></i></div></td></tr>`;
+      if (open) body += `<tr class="det"><td colspan="${C}">${partOrders(p)}</td></tr>`;
+    });
+    const sumQ = list.reduce((a, p) => a + p.qty, 0), sumS = list.reduce((a, p) => a + p.sale, 0);
+    const ords = new Set(), custs = new Set(); list.forEach(p => { p.orderList.forEach(o => ords.add(o.key)); p.custs.forEach(c => custs.add(c)); });
+    $('pcount').textContent = q ? `${list.length} of ${parts.length} parts` : '';
+    $('pbody').innerHTML = list.length ? `<div class="ledger-wrap"><table class="ledger ptab">
+      <thead><tr><th>Part #</th><th class="l">Description</th><th>Units</th><th>Orders</th><th>Customers</th><th>Avg unit price</th><th>Sales</th><th class="barc"></th></tr></thead>
+      <tbody>${body}</tbody>
+      <tfoot><tr><td>${q ? 'Total (filtered)' : 'Grand total'}</td><td></td><td class="num">${int(sumQ)}</td><td class="num">${ords.size.toLocaleString('en-CA')}</td><td class="num">${custs.size.toLocaleString('en-CA')}</td><td class="num"></td><td class="num">${cad(sumS)}</td><td class="barc"></td></tr></tfoot>
+      </table></div>` : `<div class="placeholder">${q ? 'No parts match “' + esc(partQuery) + '”.' : 'No part lines dated in this range.'}</div>`;
+  }
+
+  function partOrders(p) {
+    const foreign = p.orderList.some(o => o.cur !== 'CAD');
+    const rows = p.orderList.map(o => {
+      const discs = [...o.discs].filter(d => d), unit = o.qty ? o.gross / o.qty : 0;
+      return `<tr><td class="on">${esc(o.key)}</td><td class="dt">${esc(o.date)}</td><td class="info">${esc(o.cust)}</td><td class="r">${int(o.qty)}</td>
+        <td class="r">${cad(unit)}</td><td class="r">${discs.length > 1 ? 'mixed' : pct(discs[0] || 0)}</td><td class="r sp">${cad(o.sale)}</td>
+        ${foreign ? `<td class="cur">${o.cur === 'CAD' ? 'CAD' : esc(o.cur) + ' · rate ' + int(o.rate)}</td>` : ''}</tr>`;
+    }).join('');
+    return `<div class="orders"><table class="otab"><thead><tr><th>Order #</th><th>Date</th><th>Customer</th><th class="r">Qty</th><th class="r">Unit price</th><th class="r">Disc.</th><th class="r">Sale price</th>${foreign ? '<th>Billed in</th>' : ''}</tr></thead>
+      <tbody>${rows}</tbody><tfoot><tr><td colspan="3">${p.orderList.length} order${p.orderList.length === 1 ? '' : 's'}</td><td class="r">${int(p.qty)}</td><td class="r">${p.qty ? cad(p.sale / p.qty) : ''}</td><td></td><td class="r">${cad(p.sale)}</td>${foreign ? '<td></td>' : ''}</tr></tfoot></table></div>`;
+  }
+
+  // ---------- One click handler for everything in the results ----------
+  $('result').addEventListener('click', e => {
+    const b = e.target.closest('[data-act]'); if (!b || b.disabled || !last) return;
+    const a = b.dataset.act, k = b.dataset.k;
+    const refocus = () => { const nb = document.querySelector(`[data-act="${a}"][data-k="${CSS.escape(k)}"]`); if (nb) nb.focus(); };
+    if (a === 'view') { if (view !== k) { view = k; store.set('ms_view', k); render(); refocus(); } }
+    else if (a === 'month') { toggle(openMonths, k); render(); refocus(); }
+    else if (a === 'order') { toggle(openOrders, k); render(); refocus(); }
+    else if (a === 'part') { toggle(openParts, k); renderParts(); refocus(); }
+    else if (a === 'bar') { barCol = k || null; render(); }
+    else if (a === 'expand') { const w = last.months.filter(m => m.count > 0); if (w.every(m => openMonths.has(m.month))) openMonths.clear(); else w.forEach(m => openMonths.add(m.month)); render(); }
+    else if (a === 'csv') csv();
+    else if (a === 'print') window.print();
+  });
+  $('result').addEventListener('input', e => { if (e.target.id === 'pq') { partQuery = e.target.value; renderParts(); } });
+  $('result').addEventListener('change', e => { if (e.target.id === 'psort') { partSort = e.target.value; store.set('ms_psort', partSort); renderParts(); } });
 
   function csv() {
     const r = last; if (!r) return;
     const q = v => /[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v);
-    const lines = [['Month', 'Entries', ...r.columns].map(q).join(',')];
-    r.months.forEach(m => lines.push([label(m.month), m.count, ...m.sums].map(q).join(',')));
-    lines.push(['Grand total', r.total.count, ...r.total.sums].map(q).join(','));
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `monthly-summary_${r.from}_to_${r.to}.csv`;
+    const out = [];
+    if (view === 'part') {
+      out.push(['Part #', 'Description', 'Units', 'Orders', 'Customers', 'Avg unit price (CAD)', 'Sales (CAD)'].map(q).join(','));
+      parts.slice().sort((a, b) => b.qty - a.qty).forEach(p => out.push([p.part, p.desc, p.qty, p.orderList.length, p.custs.size, p.qty ? (p.sale / p.qty).toFixed(2) : '', p.sale.toFixed(2)].map(q).join(',')));
+    } else {
+      out.push(['Month', 'Orders', ...r.columns.map(c => isMoney(c) && !/cad|cdn/i.test(c) ? c + ' (CAD)' : c)].map(q).join(','));
+      r.months.forEach(m => out.push([label(m.month), m.count, ...m.sums].map(q).join(',')));
+      out.push(['Grand total', r.total.count, ...r.total.sums].map(q).join(','));
+    }
+    const blob = new Blob([out.join('\n')], { type: 'text/csv' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `monthly-summary_${view === 'part' ? 'by-part' : 'by-month'}_${r.from}_to_${r.to}.csv`;
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
 
