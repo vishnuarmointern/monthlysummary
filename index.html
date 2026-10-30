@@ -339,6 +339,13 @@
   // ---------- Formatting ----------
   const isMoney = h => /(\$|amount|total|value|revenue|sales|price|cost|subtotal|paid|invoice|tax|hst|gst|fee|shipping|freight|discount|cad|usd)/i.test(h);
   const isCount = h => /(qty|quantity|units|count|pcs|pieces)/i.test(h);
+  // Sheet headers → proper wording ("order_no" → "Order Number", "sales_price_cdn" → "Sales Price (CAD)")
+  const NICE = { orderno: 'Order Number', ordernumber: 'Order Number', orderdate: 'Order Date', partno: 'Part Number', partnumber: 'Part Number',
+    description: 'Description', custno: 'Customer Number', custname: 'Customer Name', customer: 'Customer', refno: 'Reference Number',
+    currency: 'Currency', currencyrate: 'Exchange Rate', orderqty: 'Quantity', qty: 'Quantity', unitcdn: 'Unit Price (CAD)', unitcad: 'Unit Price (CAD)',
+    linedisc: 'Discount (%)', salespricecdn: 'Sales Price (CAD)', salepricecdn: 'Sales Price (CAD)', date: 'Date' };
+  const nice = h => { const k = String(h || '').toLowerCase().replace(/[^a-z0-9]/g, ''); if (NICE[k]) return NICE[k];
+    return String(h || '').replace(/_/g, ' ').replace(/\b(cdn|cad)\b/ig, '(CAD)').replace(/\s+/g, ' ').trim().replace(/\b([a-z])/g, c => c.toUpperCase()); };
   function fmt(v, h) {
     if (isMoney(h)) return Number(v).toLocaleString('en-CA', { style: 'currency', currency: 'CAD', currencyDisplay: 'narrowSymbol', minimumFractionDigits: 2, maximumFractionDigits: 2 });
     return Number(v).toLocaleString('en-CA', { maximumFractionDigits: isCount(h) ? 0 : 2 });
@@ -435,7 +442,7 @@
     r.lines.forEach(l => { (byOrder[l[L.key]] = byOrder[l[L.key]] || []).push(l); });
     const map = {};
     r.lines.filter(l => l[L.inr]).forEach(l => {
-      const p = l[L.part] || '(no part #)';
+      const p = l[L.part] || '(no part number)';
       const e = map[p] = map[p] || { part: p, desc: '', qty: 0, sale: 0, orders: {}, custs: new Set() };
       e.qty += l[L.qty]; e.sale += l[L.sale]; if (l[L.cust]) e.custs.add(l[L.cust]);
       if (l[L.desc]) { e.descs = e.descs || {}; e.descs[l[L.desc]] = (e.descs[l[L.desc]] || 0) + 1; }
@@ -451,8 +458,8 @@
     const cur = r.currency || {};
     const curNote = cur.mode === 'convert' && cur.converted ? ` · ${cur.converted.toLocaleString('en-CA')} foreign-currency order${cur.converted === 1 ? '' : 's'} converted at the order's rate` : '';
     return `<div class="viewbar"><div class="seg" role="tablist" aria-label="Organize by">
-        <button type="button" role="tab" data-act="view" data-k="month" aria-selected="${view === 'month'}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>By month</button>
-        <button type="button" role="tab" data-act="view" data-k="part" aria-selected="${view === 'part'}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg>By part number</button>
+        <button type="button" role="tab" data-act="view" data-k="month" aria-selected="${view === 'month'}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>By Month</button>
+        <button type="button" role="tab" data-act="view" data-k="part" aria-selected="${view === 'part'}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg>By Part Number</button>
       </div><span class="cadtag">All amounts in CAD</span></div>
       <div class="res-head"><h2>${esc(range)}</h2><span class="meta">${esc(sub + curNote)}</span>
         <div class="tools">${tools}
@@ -472,9 +479,9 @@
     const rows = ls.map(l => `<tr><td class="pn">${esc(l[L.part] || '—')}</td><td class="info">${esc(l[L.desc])}</td><td class="r">${int(l[L.qty])}</td>
       <td class="r">${cad(l[L.unit])}</td><td class="r">${pct(l[L.disc])}</td><td class="r sp">${cad(l[L.sale])}</td>${foreign ? `<td class="cur">${l[L.cur] === 'CAD' ? 'CAD' : esc(l[L.cur]) + ' · rate ' + int(l[L.rate])}</td>` : ''}</tr>`).join('');
     const diff = netVal == null ? null : Math.round((netVal - t) * 100) / 100;
-    return `<div class="orders lines"><table class="otab ltab"><thead><tr><th>Part #</th><th>Description</th><th class="r">Qty</th><th class="r">Unit price</th><th class="r">Disc.</th><th class="r">Sale price</th>${foreign ? '<th>Billed in</th>' : ''}</tr></thead>
-      <tbody>${rows}</tbody><tfoot><tr><td colspan="2">${ls.length} part line${ls.length === 1 ? '' : 's'}</td><td class="r">${int(q)}</td><td></td><td></td><td class="r">${cad(t)}</td>${foreign ? '<td></td>' : ''}</tr></tfoot></table>
-      ${diff !== null && Math.abs(diff) >= 1 ? `<div class="recon">Order net sales ${cad(netVal)} · parts total ${cad(t)} · difference ${cad(diff)}</div>` : ''}</div>`;
+    return `<div class="orders lines"><table class="otab ltab"><thead><tr><th>Part Number</th><th>Description</th><th class="r">Quantity</th><th class="r">Unit Price</th><th class="r">Discount</th><th class="r">Sales Price</th>${foreign ? '<th>Billed In</th>' : ''}</tr></thead>
+      <tbody>${rows}</tbody><tfoot><tr><td colspan="2">${ls.length} part${ls.length === 1 ? '' : 's'}</td><td class="r">${int(q)}</td><td></td><td></td><td class="r">${cad(t)}</td>${foreign ? '<td></td>' : ''}</tr></tfoot></table>
+      ${diff !== null && Math.abs(diff) >= 1 ? `<div class="recon">Order Net Sales ${cad(netVal)} · Parts Total ${cad(t)} · Difference ${cad(diff)}</div>` : ''}</div>`;
   }
 
   // ---------- Orders inside one month ----------
@@ -485,15 +492,15 @@
     const amts = num.filter(i => used(i) && !/rate$/i.test(F[i]));
     const netI = num.find(i => /net/i.test(F[i]));
     const hasLines = !!r.lines;
-    const cols = 2 + (hasLines ? 1 : 0) + info.length + amts.length;
-    const head = `<tr><th>${oi >= 0 ? esc(F[oi]) : '#'}</th><th>${esc(F[di] || 'Date')}</th>${hasLines ? '<th class="r">Parts</th>' : ''}` +
-      info.map(i => `<th>${esc(F[i])}</th>`).join('') + amts.map(i => `<th class="r">${esc(F[i])}</th>`).join('') + '</tr>';
+    const cols = 2 + info.length + amts.length;
+    const head = `<tr><th>${oi >= 0 ? esc(nice(F[oi])) : '#'}</th><th>${esc(nice(F[di] || 'Date'))}</th>` +
+      info.map(i => `<th>${esc(nice(F[i]))}</th>`).join('') + amts.map(i => `<th class="r">${esc(nice(F[i]))}</th>`).join('') + '</tr>';
     const val = (v, h) => { const n = typeof v === 'number' ? v : Number(String(v).replace(/[$,\s]/g, '')); return v === '' ? '—' : isFinite(n) ? fmt(n, h) : String(v); };
     const rows = m.orders.map((row, k) => {
       const key = oi >= 0 ? row[K] : '', ls = byOrder[key] || [], open = openOrders.has(key) && ls.length;
       const label = esc(oi >= 0 ? (row[oi] === '' ? '—' : row[oi]) : k + 1);
       const first = oi >= 0 && hasLines ? btn('order', key, open, label, ls.length ? 'Show parts on this order' : 'No part lines found', !ls.length) : label;
-      let h = `<tr class="${open ? 'open' : ''}"><td class="on${oi >= 0 && hasLines ? ' onb' : ''}">${first}</td><td class="dt">${esc(row[di])}</td>${hasLines ? `<td class="r">${ls.length || '—'}</td>` : ''}` +
+      let h = `<tr class="${open ? 'open' : ''}"><td class="on${oi >= 0 && hasLines ? ' onb' : ''}">${first}</td><td class="dt">${esc(row[di])}</td>` +
         info.map(i => `<td class="info">${esc(row[i])}</td>`).join('') + amts.map(i => `<td class="r">${esc(val(row[i], F[i]))}</td>`).join('') + '</tr>';
       if (open) { const nv = netI !== undefined ? Number(row[netI]) : null; h += `<tr class="odet"><td colspan="${cols}">${orderLines(key, isFinite(nv) ? nv : null)}</td></tr>`; }
       return h;
@@ -509,7 +516,7 @@
     const maxBar = bi < 0 ? r.months.reduce((a, m) => Math.max(a, m.count), 0) : r.months.reduce((a, m) => Math.max(a, Math.abs(m.sums[bi])), 0);
     const best = r.months.reduce((a, m) => { const v = bi < 0 ? m.count : m.sums[bi]; return (!a || v > a.v) ? { m: m.month, v } : a; }, null);
     const primTotal = bi < 0 ? r.total.count : r.total.sums[bi];
-    const primName = bi < 0 ? 'Entries' : barCol;
+    const primName = bi < 0 ? 'Orders' : nice(barCol);
     const f = v => bi < 0 ? v.toLocaleString('en-CA') : fmt(v, barCol);
     const s = v => bi < 0 ? v.toLocaleString('en-CA') : short(v, barCol);
 
@@ -517,11 +524,11 @@
       <div class="stat"><div class="k">Months</div><div class="v num">${n}</div><div class="h">${withData} with entries</div></div>
       <div class="stat"><div class="k">Orders</div><div class="v num">${r.total.count.toLocaleString('en-CA')}</div><div class="h">avg ${(r.total.count / n).toLocaleString('en-CA', { maximumFractionDigits: 1 })} / month</div></div>
       <div class="stat"><div class="k" title="${esc(primName)}">${esc(primName)} total</div><div class="v num" title="${esc(f(primTotal))}">${esc(f(primTotal))}</div><div class="h">avg ${esc(s(primTotal / n))} / month${bi >= 0 && r.total.count ? ' · ' + esc(s(primTotal / r.total.count)) + ' / order' : ''}</div></div>
-      <div class="stat"><div class="k">Best month</div><div class="v" style="font-size:20px;padding-top:4px">${best && best.v > 0 ? esc(label(best.m)) : '—'}</div><div class="h num">${best && best.v > 0 ? esc(f(best.v)) : 'no entries'}</div></div>
+      <div class="stat"><div class="k">Best Month</div><div class="v" style="font-size:20px;padding-top:4px">${best && best.v > 0 ? esc(label(best.m)) : '—'}</div><div class="h num">${best && best.v > 0 ? esc(f(best.v)) : 'no entries'}</div></div>
     </div>`;
 
     const head = `<tr><th scope="col">Month</th><th scope="col" class="${bi < 0 ? 'sel' : ''}"><button type="button" data-act="bar" data-k="">Orders</button></th>` +
-      cols.map(c => `<th scope="col" class="${c === barCol ? 'sel' : ''}"><button type="button" data-act="bar" data-k="${esc(c)}" title="Show bars for ${esc(c)}">${esc(c)}</button></th>`).join('') +
+      cols.map(c => `<th scope="col" class="${c === barCol ? 'sel' : ''}"><button type="button" data-act="bar" data-k="${esc(c)}" title="Show bars for ${esc(nice(c))}">${esc(nice(c))}</button></th>`).join('') +
       `<th scope="col" class="barc" aria-label="Share of ${esc(primName)}"></th></tr>`;
 
     let body = '', prevY = null;
@@ -546,35 +553,40 @@
     const withOrders = r.months.filter(m => m.count > 0);
     const allOpen = withOrders.length > 0 && withOrders.every(m => openMonths.has(m.month));
     const tools = `<button class="b lbl" data-act="expand" type="button" title="${allOpen ? 'Collapse all months' : 'Show orders for every month'}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${allOpen ? '<path d="M7 14l5-5 5 5"/>' : '<path d="M7 10l5 5 5-5"/>'}</svg><span>${allOpen ? 'Collapse all' : 'Expand all'}</span></button>`;
-    $('result').innerHTML = shell(tools, r.dateColumn ? 'Grouped by “' + r.dateColumn + '” · click a month for its orders, then an order for its parts' : '') + `
+    $('result').innerHTML = shell(tools, r.dateColumn ? 'Grouped by ' + nice(r.dateColumn) + ' · click a month for its orders, then an order number for its parts' : '') + `
       ${stats}
       <div class="ledger-wrap"><table class="ledger"><thead>${head}</thead><tbody>${body}</tbody><tfoot>${foot}</tfoot></table></div>
       ${r.undated ? `<div class="note">${r.undated.toLocaleString('en-CA')} ${r.undated === 1 ? 'row in the sheet has' : 'rows in the sheet have'} no readable date and aren't counted in any month.</div>` : ''}
-      ${r.lines ? '' : `<div class="note">Part lines couldn't be loaded${r.linesError ? ' (' + esc(r.linesError) + ')' : ''}, so orders can't show their parts.</div>`}`;
+      ${r.lines ? '' : (r.linesFound === undefined && r.linesError === undefined
+        ? '<div class="note">The Apps Script is running the previous version, so orders can’t show their parts yet. Paste the latest code and deploy a new version.</div>'
+        : `<div class="note">Part lines couldn't be loaded${r.linesError ? ' (' + esc(r.linesError) + ')' : ''}, so orders can't show their parts.</div>`)}`;
   }
 
   // ---------- View 2: by part number ----------
   function renderPartView() {
     const r = last;
     if (!r.lines) {
-      $('result').innerHTML = shell('', '') + `<div class="placeholder">The parts sheet couldn't be read${r.linesError ? ': ' + esc(r.linesError) : ''}.<br>Check LINES_SPREADSHEET_ID and LINES_SHEET_NAME in the Apps Script, and that the script's account can open the sheet.</div>`;
+      const oldScript = r.linesFound === undefined && r.linesError === undefined;
+      $('result').innerHTML = shell('', '') + `<div class="placeholder">${oldScript
+        ? 'The Apps Script is still running the previous version, which doesn’t send part data yet.<br>Paste the latest code, then Deploy → Manage deployments → ✏️ → New version → Deploy.'
+        : `The parts sheet couldn't be read${r.linesError ? ': ' + esc(r.linesError) : ''}.<br>Check that the script's Google account can open the Monthly Exploded View sheet.`}</div>`;
       return;
     }
     const allOrders = new Set(), allCusts = new Set(); let units = 0, sales = 0;
     r.lines.filter(l => l[L.inr]).forEach(l => { allOrders.add(l[L.key]); if (l[L.cust]) allCusts.add(l[L.cust]); units += l[L.qty]; sales += l[L.sale]; });
     const top = parts.slice().sort((a, b) => b.qty - a.qty)[0];
     const stats = `<div class="stats">
-      <div class="stat"><div class="k">Part numbers</div><div class="v num">${parts.length.toLocaleString('en-CA')}</div><div class="h">${allCusts.size.toLocaleString('en-CA')} customers</div></div>
-      <div class="stat"><div class="k">Units ordered</div><div class="v num">${int(units)}</div><div class="h">across ${allOrders.size.toLocaleString('en-CA')} orders</div></div>
-      <div class="stat"><div class="k">Part sales total</div><div class="v num">${cad(sales)}</div><div class="h">avg ${cad(allOrders.size ? sales / allOrders.size : 0)} / order</div></div>
-      <div class="stat"><div class="k">Most ordered</div><div class="v" style="font-size:18px;padding-top:5px">${top ? esc(top.part) : '—'}</div><div class="h">${top ? int(top.qty) + ' units · ' + cad(top.sale) : 'no parts'}</div></div>
+      <div class="stat"><div class="k">Part Numbers</div><div class="v num">${parts.length.toLocaleString('en-CA')}</div><div class="h">${allCusts.size.toLocaleString('en-CA')} customers</div></div>
+      <div class="stat"><div class="k">Units Ordered</div><div class="v num">${int(units)}</div><div class="h">across ${allOrders.size.toLocaleString('en-CA')} orders</div></div>
+      <div class="stat"><div class="k">Total Sales</div><div class="v num">${cad(sales)}</div><div class="h">avg ${cad(allOrders.size ? sales / allOrders.size : 0)} / order</div></div>
+      <div class="stat"><div class="k">Most Ordered</div><div class="v" style="font-size:18px;padding-top:5px">${top ? esc(top.part) : '—'}</div><div class="h">${top ? int(top.qty) + ' units · ' + cad(top.sale) : 'no parts'}</div></div>
     </div>`;
     const ptools = `<div class="ptools"><div class="search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        <input id="pq" type="search" placeholder="Search part # or description…" value="${esc(partQuery)}" autocomplete="off" aria-label="Search parts"></div>
+        <input id="pq" type="search" placeholder="Search part number or description…" value="${esc(partQuery)}" autocomplete="off" aria-label="Search parts"></div>
       <select class="s" id="psort" aria-label="Sort parts">
-        ${[['units', 'Most units'], ['sales', 'Highest sales'], ['orders', 'Most orders'], ['part', 'Part # A–Z']].map(([v, t]) => `<option value="${v}" ${partSort === v ? 'selected' : ''}>Sort: ${t}</option>`).join('')}
+        ${[['units', 'Most units'], ['sales', 'Highest sales'], ['orders', 'Most orders'], ['part', 'Part Number A–Z']].map(([v, t]) => `<option value="${v}" ${partSort === v ? 'selected' : ''}>Sort: ${t}</option>`).join('')}
       </select><span class="count" id="pcount"></span></div>`;
-    $('result').innerHTML = shell('', `Grouped by part number · ${parts.length.toLocaleString('en-CA')} parts · click a part for the orders that bought it`) + stats + ptools + '<div id="pbody"></div>';
+    $('result').innerHTML = shell('', `Grouped by Part Number · ${parts.length.toLocaleString('en-CA')} parts · click a part number for the orders that bought it`) + stats + ptools + '<div id="pbody"></div>';
     renderParts();
   }
 
@@ -589,7 +601,7 @@
     let body = '';
     list.forEach(p => {
       const open = openParts.has(p.part);
-      body += `<tr class="${open ? 'open' : ''}"><td class="mo pcell">${btn('part', p.part, open, esc(p.part), 'Show orders for this part')}</td>
+      body += `<tr class="${open ? 'open' : ''}"><td class="mo pcell">${btn('part', p.part, open, esc(p.part), 'Show the orders for this part')}</td>
         <td class="pdesc">${esc(p.desc)}</td><td class="num">${int(p.qty)}</td><td class="num">${p.orderList.length}</td><td class="num">${p.custs.size}</td>
         <td class="num">${p.qty ? cad(p.sale / p.qty) : '—'}</td><td class="num">${cad(p.sale)}</td>
         <td class="barc"><div class="bar"><i style="width:${maxS ? Math.round(Math.abs(p.sale) / maxS * 100) : 0}%"></i></div></td></tr>`;
@@ -599,7 +611,7 @@
     const ords = new Set(), custs = new Set(); list.forEach(p => { p.orderList.forEach(o => ords.add(o.key)); p.custs.forEach(c => custs.add(c)); });
     $('pcount').textContent = q ? `${list.length} of ${parts.length} parts` : '';
     $('pbody').innerHTML = list.length ? `<div class="ledger-wrap"><table class="ledger ptab">
-      <thead><tr><th>Part #</th><th class="l">Description</th><th>Units</th><th>Orders</th><th>Customers</th><th>Avg unit price</th><th>Sales</th><th class="barc"></th></tr></thead>
+      <thead><tr><th>Part Number</th><th class="l">Description</th><th>Units Ordered</th><th>Orders</th><th>Customers</th><th>Average Unit Price</th><th>Total Sales</th><th class="barc"></th></tr></thead>
       <tbody>${body}</tbody>
       <tfoot><tr><td>${q ? 'Total (filtered)' : 'Grand total'}</td><td></td><td class="num">${int(sumQ)}</td><td class="num">${ords.size.toLocaleString('en-CA')}</td><td class="num">${custs.size.toLocaleString('en-CA')}</td><td class="num"></td><td class="num">${cad(sumS)}</td><td class="barc"></td></tr></tfoot>
       </table></div>` : `<div class="placeholder">${q ? 'No parts match “' + esc(partQuery) + '”.' : 'No part lines dated in this range.'}</div>`;
@@ -613,7 +625,7 @@
         <td class="r">${cad(unit)}</td><td class="r">${discs.length > 1 ? 'mixed' : pct(discs[0] || 0)}</td><td class="r sp">${cad(o.sale)}</td>
         ${foreign ? `<td class="cur">${o.cur === 'CAD' ? 'CAD' : esc(o.cur) + ' · rate ' + int(o.rate)}</td>` : ''}</tr>`;
     }).join('');
-    return `<div class="orders"><table class="otab"><thead><tr><th>Order #</th><th>Date</th><th>Customer</th><th class="r">Qty</th><th class="r">Unit price</th><th class="r">Disc.</th><th class="r">Sale price</th>${foreign ? '<th>Billed in</th>' : ''}</tr></thead>
+    return `<div class="orders"><table class="otab"><thead><tr><th>Order Number</th><th>Order Date</th><th>Customer Name</th><th class="r">Quantity</th><th class="r">Unit Price</th><th class="r">Discount</th><th class="r">Sales Price</th>${foreign ? '<th>Billed In</th>' : ''}</tr></thead>
       <tbody>${rows}</tbody><tfoot><tr><td colspan="3">${p.orderList.length} order${p.orderList.length === 1 ? '' : 's'}</td><td class="r">${int(p.qty)}</td><td class="r">${p.qty ? cad(p.sale / p.qty) : ''}</td><td></td><td class="r">${cad(p.sale)}</td>${foreign ? '<td></td>' : ''}</tr></tfoot></table></div>`;
   }
 
@@ -639,10 +651,10 @@
     const q = v => /[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v);
     const out = [];
     if (view === 'part') {
-      out.push(['Part #', 'Description', 'Units', 'Orders', 'Customers', 'Avg unit price (CAD)', 'Sales (CAD)'].map(q).join(','));
+      out.push(['Part Number', 'Description', 'Units Ordered', 'Orders', 'Customers', 'Average Unit Price (CAD)', 'Total Sales (CAD)'].map(q).join(','));
       parts.slice().sort((a, b) => b.qty - a.qty).forEach(p => out.push([p.part, p.desc, p.qty, p.orderList.length, p.custs.size, p.qty ? (p.sale / p.qty).toFixed(2) : '', p.sale.toFixed(2)].map(q).join(',')));
     } else {
-      out.push(['Month', 'Orders', ...r.columns.map(c => isMoney(c) && !/cad|cdn/i.test(c) ? c + ' (CAD)' : c)].map(q).join(','));
+      out.push(['Month', 'Orders', ...r.columns.map(c => { const n = nice(c); return isMoney(c) && !/cad/i.test(n) ? n + ' (CAD)' : n; })].map(q).join(','));
       r.months.forEach(m => out.push([label(m.month), m.count, ...m.sums].map(q).join(',')));
       out.push(['Grand total', r.total.count, ...r.total.sums].map(q).join(','));
     }
