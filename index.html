@@ -140,7 +140,7 @@
   .exp:disabled { cursor: default; } .exp:disabled .chev { opacity: .3; }
   .ledger tr.open > td { background: var(--accent-soft); }
   .ledger tr.det > td { padding: 0 0 14px; background: var(--accent-soft); position: static; text-align: left; white-space: normal; }
-  .orders { margin: 0 14px; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; overflow: auto; max-height: 460px; }
+  .orders { margin: 0 14px; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; overflow-x: auto; }
   table.otab { width: 100%; border-collapse: collapse; font-size: 13px; }
   .otab th, .otab td { padding: 8px 12px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--line-2); }
   .otab th { position: sticky; top: 0; background: var(--paper); font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); z-index: 1; }
@@ -317,8 +317,8 @@
   let meta = null, last = null, barCol = null;
   let view = store.get('ms_view') === 'part' ? 'part' : 'month';
   let partQuery = '', partSort = store.get('ms_psort') || 'units';
-  let byOrder = {}, parts = [];
-  const openMonths = new Set(), openOrders = new Set(), openParts = new Set();
+  let byOrder = {}, parts = [], partMonths = [];
+  const openMonths = new Set(), openOrders = new Set(), openParts = new Set(), openPMonths = new Set();
 
   async function api(payload) {
     // text/plain avoids a CORS preflight, which Apps Script doesn't support.
@@ -412,7 +412,7 @@
     try {
       const r = await api({ action: 'summary', token, from, to });
       if (!r.ok) { $('result').innerHTML = `<div class="placeholder">${esc(r.error || 'Could not build the summary.')}</div>`; return; }
-      if (!last || last.from !== r.from || last.to !== r.to) { openMonths.clear(); openOrders.clear(); openParts.clear(); }
+      if (!last || last.from !== r.from || last.to !== r.to) { openMonths.clear(); openOrders.clear(); openParts.clear(); openPMonths.clear(); }
       last = r; prepare(r);
       if (!barCol || r.columns.indexOf(barCol) < 0) barCol = pickPrimary(r.columns);
       render();
@@ -437,12 +437,10 @@
   // line: [orderKey, date, part, desc, cust, qty, unitCAD, disc, saleCAD, currency, rate, inRange]
   const L = { key: 0, date: 1, part: 2, desc: 3, cust: 4, qty: 5, unit: 6, disc: 7, sale: 8, cur: 9, rate: 10, inr: 11 };
 
-  function prepare(r) {
-    byOrder = {}; parts = [];
-    if (!r.lines) return;
-    r.lines.forEach(l => { (byOrder[l[L.key]] = byOrder[l[L.key]] || []).push(l); });
+  // Group part lines into parts (each with its orders)
+  function groupParts(lines) {
     const map = {};
-    r.lines.filter(l => l[L.inr]).forEach(l => {
+    lines.forEach(l => {
       const p = l[L.part] || '(no part number)';
       const e = map[p] = map[p] || { part: p, desc: '', qty: 0, sale: 0, orders: {}, custs: new Set() };
       e.qty += l[L.qty]; e.sale += l[L.sale]; if (l[L.cust]) e.custs.add(l[L.cust]);
@@ -450,7 +448,18 @@
       const o = e.orders[l[L.key]] = e.orders[l[L.key]] || { key: l[L.key], date: l[L.date], cust: l[L.cust], qty: 0, gross: 0, sale: 0, discs: new Set(), cur: l[L.cur], rate: l[L.rate] };
       o.qty += l[L.qty]; o.sale += l[L.sale]; o.gross += l[L.qty] * l[L.unit]; o.discs.add(l[L.disc]);
     });
-    parts = Object.values(map).map(e => Object.assign(e, { desc: e.descs ? Object.keys(e.descs).sort((a, b) => e.descs[b] - e.descs[a])[0] : '', orderList: Object.values(e.orders).sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.key).localeCompare(String(b.key), undefined, { numeric: true })) }));
+    return Object.values(map).map(e => Object.assign(e, { desc: e.descs ? Object.keys(e.descs).sort((a, b) => e.descs[b] - e.descs[a])[0] : '', orderList: Object.values(e.orders).sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.key).localeCompare(String(b.key), undefined, { numeric: true })) }));
+  }
+
+  function prepare(r) {
+    byOrder = {}; parts = []; partMonths = [];
+    if (!r.lines) return;
+    r.lines.forEach(l => { (byOrder[l[L.key]] = byOrder[l[L.key]] || []).push(l); });
+    const inr = r.lines.filter(l => l[L.inr]);
+    parts = groupParts(inr);
+    const byM = {};
+    inr.forEach(l => { const ym = String(l[L.date]).slice(0, 7); (byM[ym] = byM[ym] || []).push(l); });
+    partMonths = r.months.map(m => ({ month: m.month, parts: groupParts(byM[m.month] || []) }));
   }
 
   // ---------- Shell: view switch + heading + tools ----------
@@ -602,35 +611,57 @@
       <select class="s" id="psort" aria-label="Sort parts">
         ${[['units', 'Most units'], ['sales', 'Highest sales'], ['orders', 'Most orders'], ['part', 'Part Number A–Z']].map(([v, t]) => `<option value="${v}" ${partSort === v ? 'selected' : ''}>Sort: ${t}</option>`).join('')}
       </select><span class="count" id="pcount"></span></div>`;
-    $('result').innerHTML = shell('', `Grouped by Part Number · ${parts.length.toLocaleString('en-CA')} parts · click a part number for the orders that bought it`) + stats + ptools + '<div id="pbody"></div>';
+    const withParts = partMonths.filter(m => m.parts.length), allOpen = withParts.length > 0 && withParts.every(m => openPMonths.has(m.month));
+    const tools = `<button class="b lbl" data-act="pexpand" type="button" title="${allOpen ? 'Collapse all months' : 'Show parts for every month'}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${allOpen ? '<path d="M7 14l5-5 5 5"/>' : '<path d="M7 10l5 5 5-5"/>'}</svg><span>${allOpen ? 'Collapse all' : 'Expand all'}</span></button>`;
+    $('result').innerHTML = shell(tools, `Grouped by month, then Part Number · click a month for its parts, then a part number for the orders that bought it`) + stats + ptools + '<div id="pbody"></div>';
     renderParts();
   }
 
+  const PSORT = { units: (a, b) => b.qty - a.qty, sales: (a, b) => b.sale - a.sale, orders: (a, b) => b.orderList.length - a.orderList.length,
+                  part: (a, b) => a.part.localeCompare(b.part, undefined, { numeric: true }) };
+  const partMatch = (p, q) => !q || p.part.toLowerCase().includes(q) || (p.desc || '').toLowerCase().includes(q);
+
   function renderParts() {
     const q = partQuery.trim().toLowerCase();
-    let list = parts.filter(p => !q || p.part.toLowerCase().includes(q) || (p.desc || '').toLowerCase().includes(q));
-    const sorters = { units: (a, b) => b.qty - a.qty, sales: (a, b) => b.sale - a.sale, orders: (a, b) => b.orderList.length - a.orderList.length,
-                      part: (a, b) => a.part.localeCompare(b.part, undefined, { numeric: true }) };
-    list.sort((a, b) => sorters[partSort](a, b) || a.part.localeCompare(b.part, undefined, { numeric: true }));
-    const maxS = list.reduce((a, p) => Math.max(a, Math.abs(p.sale)), 0);
-    const C = 9;
-    let body = '';
-    list.forEach(p => {
-      const open = openParts.has(p.part);
-      body += `<tr class="${open ? 'open' : ''}"><td class="mo pcell">${btn('part', p.part, open, esc(p.part), 'Show the orders for this part')}</td>
-        <td class="pdesc">${esc(p.desc)}</td><td class="num">${int(p.qty)}</td><td class="num">${p.orderList.length}</td><td class="num">${p.custs.size}</td>
-        <td class="num">${p.qty ? cad(p.sale / p.qty) : '—'}</td><td class="num">${cad(p.sale)}</td>
-        <td class="barc"><div class="bar"><i style="width:${maxS ? Math.round(Math.abs(p.sale) / maxS * 100) : 0}%"></i></div></td></tr>`;
-      if (open) body += `<tr class="det"><td colspan="${C}">${partOrders(p)}</td></tr>`;
+    const months = partMonths.map(m => {
+      const list = m.parts.filter(p => partMatch(p, q)).sort((a, b) => PSORT[partSort](a, b) || a.part.localeCompare(b.part, undefined, { numeric: true }));
+      const ords = new Set(); list.forEach(p => p.orderList.forEach(o => ords.add(o.key)));
+      return { month: m.month, list, qty: list.reduce((a, p) => a + p.qty, 0), sale: list.reduce((a, p) => a + p.sale, 0), orders: ords };
     });
-    const sumQ = list.reduce((a, p) => a + p.qty, 0), sumS = list.reduce((a, p) => a + p.sale, 0);
-    const ords = new Set(), custs = new Set(); list.forEach(p => { p.orderList.forEach(o => ords.add(o.key)); p.custs.forEach(c => custs.add(c)); });
-    $('pcount').textContent = q ? `${list.length} of ${parts.length} parts` : '';
-    $('pbody').innerHTML = list.length ? `<div class="ledger-wrap"><table class="ledger ptab">
-      <thead><tr><th>Part Number</th><th class="l">Description</th><th>Units Ordered</th><th>Orders</th><th>Customers</th><th>Average Unit Price</th><th>Total Sales</th><th class="barc"></th></tr></thead>
+    const maxS = months.reduce((a, m) => Math.max(a, Math.abs(m.sale)), 0);
+    const multiYear = last.from.slice(0, 4) !== last.to.slice(0, 4);
+    const C = 6;
+    let body = '', prevY = null;
+    months.forEach(m => {
+      const y = m.month.slice(0, 4);
+      if (multiYear && y !== prevY) { body += `<tr class="yr"><td colspan="${C}">${y}</td></tr>`; prevY = y; }
+      const has = m.list.length > 0, open = has && (openPMonths.has(m.month) || (!!q && !openPMonths.has('!' + m.month)));
+      body += `<tr class="${has ? '' : 'empty'}${open ? ' open' : ''}"><td class="mo">${btn('pmonth', m.month, open, `${MONTHS[+m.month.slice(5) - 1]}${multiYear ? '' : ` <small>${y}</small>`}`, has ? 'Show the parts ordered this month' : 'No parts', !has)}</td>
+        <td class="num">${has ? m.list.length : 0}</td><td class="num">${has ? int(m.qty) : '—'}</td><td class="num">${has ? m.orders.size : '—'}</td><td class="num">${has ? cad(m.sale) : '—'}</td>
+        <td class="barc"><div class="bar"><i style="width:${maxS ? Math.round(Math.abs(m.sale) / maxS * 100) : 0}%"></i></div></td></tr>`;
+      if (open) body += `<tr class="det"><td colspan="${C}">${monthParts(m)}</td></tr>`;
+    });
+    const tq = months.reduce((a, m) => a + m.qty, 0), ts = months.reduce((a, m) => a + m.sale, 0);
+    const tOrders = new Set(), tParts = new Set(); months.forEach(m => { m.orders.forEach(o => tOrders.add(o)); m.list.forEach(p => tParts.add(p.part)); });
+    $('pcount').textContent = q ? `${tParts.size} of ${parts.length} parts match` : '';
+    $('pbody').innerHTML = tParts.size || !q ? `<div class="ledger-wrap"><table class="ledger ptab">
+      <thead><tr><th>Month</th><th>Part Numbers</th><th>Units Ordered</th><th>Orders</th><th>Total Sales</th><th class="barc"></th></tr></thead>
       <tbody>${body}</tbody>
-      <tfoot><tr><td>${q ? 'Total (filtered)' : 'Grand total'}</td><td></td><td class="num">${int(sumQ)}</td><td class="num">${ords.size.toLocaleString('en-CA')}</td><td class="num">${custs.size.toLocaleString('en-CA')}</td><td class="num"></td><td class="num">${cad(sumS)}</td><td class="barc"></td></tr></tfoot>
-      </table></div>` : `<div class="placeholder">${q ? 'No parts match “' + esc(partQuery) + '”.' : 'No part lines dated in this range.'}</div>`;
+      <tfoot><tr><td>${q ? 'Total (filtered)' : 'Grand total'}</td><td class="num">${tParts.size.toLocaleString('en-CA')}</td><td class="num">${int(tq)}</td><td class="num">${tOrders.size.toLocaleString('en-CA')}</td><td class="num">${cad(ts)}</td><td class="barc"></td></tr></tfoot>
+      </table></div>` : `<div class="placeholder">No parts match “${esc(partQuery)}”.</div>`;
+  }
+
+  // One month's parts; each part number opens to the orders that bought it that month
+  function monthParts(m) {
+    const rows = m.list.map(p => {
+      const k = m.month + '|' + p.part, open = openParts.has(k);
+      let h = `<tr class="${open ? 'open' : ''}"><td class="on onb">${btn('part', k, open, esc(p.part), 'Show the orders for this part')}</td><td class="info">${esc(p.desc)}</td>
+        <td class="r">${int(p.qty)}</td><td class="r">${p.orderList.length}</td><td class="r">${p.custs.size}</td><td class="r">${p.qty ? cad(p.sale / p.qty) : '—'}</td><td class="r sp">${cad(p.sale)}</td></tr>`;
+      if (open) h += `<tr class="odet"><td colspan="7">${partOrders(p)}</td></tr>`;
+      return h;
+    }).join('');
+    return `<div class="orders"><table class="otab"><thead><tr><th>Part Number</th><th>Description</th><th class="r">Units Ordered</th><th class="r">Orders</th><th class="r">Customers</th><th class="r">Average Unit Price</th><th class="r">Total Sales</th></tr></thead>
+      <tbody>${rows}</tbody><tfoot><tr><td colspan="2">${m.list.length} part number${m.list.length === 1 ? '' : 's'}</td><td class="r">${int(m.qty)}</td><td class="r">${m.orders.size}</td><td></td><td></td><td class="r">${cad(m.sale)}</td></tr></tfoot></table></div>`;
   }
 
   function partOrders(p) {
@@ -641,7 +672,7 @@
         <td class="r">${cad(unit)}</td><td class="r">${discs.length > 1 ? 'mixed' : pct(discs[0] || 0)}</td><td class="r sp">${cad(o.sale)}</td>
         ${foreign ? `<td class="cur">${o.cur === 'CAD' ? 'CAD' : esc(o.cur) + ' · rate ' + int(o.rate)}</td>` : ''}</tr>`;
     }).join('');
-    return `<div class="orders"><table class="otab"><thead><tr><th>Order Number</th><th>Order Date</th><th>Customer Name</th><th class="r">Quantity</th><th class="r">Unit Price</th><th class="r">Discount</th><th class="r">Sales Price</th>${foreign ? '<th>Billed In</th>' : ''}</tr></thead>
+    return `<div class="orders lines"><table class="otab ltab"><thead><tr><th>Order Number</th><th>Order Date</th><th>Customer Name</th><th class="r">Quantity</th><th class="r">Unit Price</th><th class="r">Discount</th><th class="r">Sales Price</th>${foreign ? '<th>Billed In</th>' : ''}</tr></thead>
       <tbody>${rows}</tbody><tfoot><tr><td colspan="3">${p.orderList.length} order${p.orderList.length === 1 ? '' : 's'}</td><td class="r">${int(p.qty)}</td><td class="r">${p.qty ? cad(p.sale / p.qty) : ''}</td><td></td><td class="r">${cad(p.sale)}</td>${foreign ? '<td></td>' : ''}</tr></tfoot></table></div>`;
   }
 
@@ -654,6 +685,12 @@
     else if (a === 'month') { toggle(openMonths, k); render(); refocus(); }
     else if (a === 'order') { toggle(openOrders, k); render(); refocus(); }
     else if (a === 'part') { toggle(openParts, k); renderParts(); refocus(); }
+    else if (a === 'pmonth') {
+      const isOpen = b.getAttribute('aria-expanded') === 'true';
+      if (isOpen) { openPMonths.delete(k); if (partQuery.trim()) openPMonths.add('!' + k); } else { openPMonths.add(k); openPMonths.delete('!' + k); }
+      renderParts(); refocus();
+    }
+    else if (a === 'pexpand') { const w = partMonths.filter(m => m.parts.length); if (w.every(m => openPMonths.has(m.month))) openPMonths.clear(); else w.forEach(m => openPMonths.add(m.month)); render(); }
     else if (a === 'bar') { barCol = k || null; render(); }
     else if (a === 'expand') { const w = last.months.filter(m => m.count > 0); if (w.every(m => openMonths.has(m.month))) openMonths.clear(); else w.forEach(m => openMonths.add(m.month)); render(); }
     else if (a === 'csv') csv();
@@ -667,8 +704,8 @@
     const q = v => /[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v);
     const out = [];
     if (view === 'part') {
-      out.push(['Part Number', 'Description', 'Units Ordered', 'Orders', 'Customers', 'Average Unit Price (CAD)', 'Total Sales (CAD)'].map(q).join(','));
-      parts.slice().sort((a, b) => b.qty - a.qty).forEach(p => out.push([p.part, p.desc, p.qty, p.orderList.length, p.custs.size, p.qty ? (p.sale / p.qty).toFixed(2) : '', p.sale.toFixed(2)].map(q).join(',')));
+      out.push(['Month', 'Part Number', 'Description', 'Units Ordered', 'Orders', 'Customers', 'Average Unit Price (CAD)', 'Total Sales (CAD)'].map(q).join(','));
+      partMonths.forEach(m => m.parts.slice().sort((a, b) => b.qty - a.qty).forEach(p => out.push([label(m.month), p.part, p.desc, p.qty, p.orderList.length, p.custs.size, p.qty ? (p.sale / p.qty).toFixed(2) : '', p.sale.toFixed(2)].map(q).join(','))));
     } else {
       out.push(['Month', 'Orders', ...r.columns.map(c => { const n = nice(c); return isMoney(c) && !/cad/i.test(n) ? n + ' (CAD)' : n; })].map(q).join(','));
       r.months.forEach(m => out.push([label(m.month), m.count, ...m.sums].map(q).join(',')));
