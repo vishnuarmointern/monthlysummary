@@ -469,7 +469,7 @@
     const curNote = cur.mode === 'convert' && cur.converted ? ` · ${cur.converted.toLocaleString('en-CA')} foreign-currency order${cur.converted === 1 ? '' : 's'} converted at the order's rate` : '';
     return `<div class="viewbar"><div class="seg" role="tablist" aria-label="Organize by">
         <button type="button" role="tab" data-act="view" data-k="month" aria-selected="${view === 'month'}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>By Month</button>
-        <button type="button" role="tab" data-act="view" data-k="part" aria-selected="${view === 'part'}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg>By Part Number</button>
+        <button type="button" role="tab" data-act="view" data-k="part" aria-selected="${view === 'part'}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg>By Order Number</button>
       </div><span class="cadtag">All amounts in CAD</span></div>
       <div class="res-head"><h2>${esc(range)}</h2><span class="meta">${esc(sub + curNote)}</span>
         <div class="tools">${tools}
