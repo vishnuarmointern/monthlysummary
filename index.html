@@ -553,7 +553,7 @@
     const withOrders = r.months.filter(m => m.count > 0);
     const allOpen = withOrders.length > 0 && withOrders.every(m => openMonths.has(m.month));
     const tools = `<button class="b lbl" data-act="expand" type="button" title="${allOpen ? 'Collapse all months' : 'Show orders for every month'}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${allOpen ? '<path d="M7 14l5-5 5 5"/>' : '<path d="M7 10l5 5 5-5"/>'}</svg><span>${allOpen ? 'Collapse all' : 'Expand all'}</span></button>`;
-    $('result').innerHTML = shell(tools, r.dateColumn ? 'Grouped by ' + nice(r.dateColumn) + ' · click a month for its orders, then an order number for its parts' : '') + `
+    $('result').innerHTML = shell(tools, (r.dateColumn ? 'Grouped by ' + nice(r.dateColumn) + ' · click a month for its orders, then an order number for its parts' : '') + (r.matched != null ? ' · order numbers matched from Monthly Exploded View by date and net sales' : '')) + `
       ${stats}
       <div class="ledger-wrap"><table class="ledger"><thead>${head}</thead><tbody>${body}</tbody><tfoot>${foot}</tfoot></table></div>
       ${r.undated ? `<div class="note">${r.undated.toLocaleString('en-CA')} ${r.undated === 1 ? 'row in the sheet has' : 'rows in the sheet have'} no readable date and aren't counted in any month.</div>` : ''}
