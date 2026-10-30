@@ -179,6 +179,7 @@
   .otab td.pn { font-weight: 600; font-variant-numeric: tabular-nums; }
   .otab td.sp { font-weight: 600; }
   .otab td.cur { color: var(--muted); font-size: 12px; }
+  .ptag { font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--warn); background: var(--warn-soft); border-radius: 5px; padding: 1px 5px; margin-left: 4px; vertical-align: 1px; }
   .empty-lines { padding: 12px 14px; color: var(--muted); font-size: 13px; }
   .recon { padding: 8px 12px; font-size: 12px; color: var(--warn); background: var(--warn-soft); border-top: 1px solid var(--line-2); }
   .note { color: var(--warn); background: var(--warn-soft); border-radius: 9px; padding: 8px 12px; font-size: 13px; margin-top: 12px; }
@@ -471,7 +472,7 @@
   function render() { view === 'part' ? renderPartView() : renderMonthView(); }
 
   // ---------- Parts inside one order ----------
-  function orderLines(key, netVal) {
+  function orderLines(key, netVal, partial) {
     const ls = byOrder[key] || [];
     if (!ls.length) return '<div class="orders lines empty-lines">No part lines found for this order in the parts sheet.</div>';
     const foreign = ls.some(l => l[L.cur] !== 'CAD');
@@ -481,31 +482,45 @@
     const diff = netVal == null ? null : Math.round((netVal - t) * 100) / 100;
     return `<div class="orders lines"><table class="otab ltab"><thead><tr><th>Part Number</th><th>Description</th><th class="r">Quantity</th><th class="r">Unit Price</th><th class="r">Discount</th><th class="r">Sales Price</th>${foreign ? '<th>Billed In</th>' : ''}</tr></thead>
       <tbody>${rows}</tbody><tfoot><tr><td colspan="2">${ls.length} part${ls.length === 1 ? '' : 's'}</td><td class="r">${int(q)}</td><td></td><td></td><td class="r">${cad(t)}</td>${foreign ? '<td></td>' : ''}</tr></tfoot></table>
-      ${diff !== null && Math.abs(diff) >= 1 ? `<div class="recon">Order Net Sales ${cad(netVal)} · Parts Total ${cad(t)} · Difference ${cad(diff)}</div>` : ''}</div>`;
+      ${partial ? `<div class="recon">This row is a partial invoice of ${cad(netVal)}. Order ${esc(key)} totals ${cad(t)} across all its parts above.</div>`
+        : diff !== null && Math.abs(diff) >= 1 ? `<div class="recon">Order Net Sales ${cad(netVal)} · Parts Total ${cad(t)} · Difference ${cad(diff)}</div>` : ''}</div>`;
   }
 
   // ---------- Orders inside one month ----------
   function ordersTable(m) {
     const r = last, F = r.fields || [], di = r.dateIdx, oi = r.orderIdx, num = r.numIdx || [], K = F.length;
     const used = i => F[i] && m.orders.some(row => row[i] !== '' && row[i] != null);
-    const info = F.map((h, i) => i).filter(i => i !== di && i !== oi && num.indexOf(i) < 0 && used(i) && !/^(currency|currencyrate|exchangerate|fxrate|rate|refno)$/.test(String(F[i]).toLowerCase().replace(/[^a-z]/g, '')));
+    const mi = F.indexOf('__match');
+    const info = F.map((h, i) => i).filter(i => i !== di && i !== oi && i !== mi && num.indexOf(i) < 0 && used(i) && !/^(currency|currencyrate|exchangerate|fxrate|rate|refno)$/.test(String(F[i]).toLowerCase().replace(/[^a-z]/g, '')));
     const amts = num.filter(i => used(i) && !/rate$/i.test(F[i]));
-    const netI = num.find(i => /net/i.test(F[i]));
+    const netI = num.find(i => /net/i.test(F[i])) ?? num.find(i => /sub[\s_]*total/i.test(F[i]));
     const hasLines = !!r.lines;
     const cols = 2 + info.length + amts.length;
     const head = `<tr><th>${oi >= 0 ? esc(nice(F[oi])) : '#'}</th><th>${esc(nice(F[di] || 'Date'))}</th>` +
       info.map(i => `<th>${esc(nice(F[i]))}</th>`).join('') + amts.map(i => `<th class="r">${esc(nice(F[i]))}</th>`).join('') + '</tr>';
     const val = (v, h) => { const n = typeof v === 'number' ? v : Number(String(v).replace(/[$,\s]/g, '')); return v === '' ? '—' : isFinite(n) ? fmt(n, h) : String(v); };
     const rows = m.orders.map((row, k) => {
-      const key = oi >= 0 ? row[K] : '', ls = byOrder[key] || [], open = openOrders.has(key) && ls.length;
-      const label = esc(oi >= 0 ? (row[oi] === '' ? '—' : row[oi]) : k + 1);
-      const first = oi >= 0 && hasLines ? btn('order', key, open, label, ls.length ? 'Show parts on this order' : 'No part lines found', !ls.length) : label;
+      const key = oi >= 0 ? row[K] : '', ls = byOrder[key] || [], open = openOrders.has(key + '|' + k) && ls.length;
+      const partial = mi >= 0 && row[mi] === 'partial';
+      const label = esc(oi >= 0 ? (row[oi] === '' ? '—' : row[oi]) : k + 1) + (partial ? ' <span class="ptag">partial</span>' : '');
+      const tip = !ls.length ? (mi >= 0 ? 'No order with this date and amount in Monthly Exploded View' : 'No part lines found')
+                : partial ? 'This invoice covers part of order ' + key + ': click to see all of that order\'s parts' : 'Show parts on this order';
+      const first = oi >= 0 && hasLines ? btn('order', key + '|' + k, open, label, tip, !ls.length) : label;
       let h = `<tr class="${open ? 'open' : ''}"><td class="on${oi >= 0 && hasLines ? ' onb' : ''}">${first}</td><td class="dt">${esc(row[di])}</td>` +
         info.map(i => `<td class="info">${esc(row[i])}</td>`).join('') + amts.map(i => `<td class="r">${esc(val(row[i], F[i]))}</td>`).join('') + '</tr>';
-      if (open) { const nv = netI !== undefined ? Number(row[netI]) : null; h += `<tr class="odet"><td colspan="${cols}">${orderLines(key, isFinite(nv) ? nv : null)}</td></tr>`; }
+      if (open) { const nv = netI !== undefined ? Number(row[netI]) : null; h += `<tr class="odet"><td colspan="${cols}">${orderLines(key, isFinite(nv) ? nv : null, partial)}</td></tr>`; }
       return h;
     }).join('');
     return `<div class="orders"><table class="otab"><thead>${head}</thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  function linkNote(r) {
+    if (r.matched == null || !r.lines) return '';
+    const F = r.fields || [], ni = (r.numIdx || []).find(i => /net|sub[\s_]*total/i.test(F[i]));
+    let all = 0, miss = 0;
+    r.months.forEach(m => m.orders.forEach(row => { const n = ni !== undefined ? Number(row[ni]) : 1; if (!n) return; all++; if (!row[F.length]) miss++; }));
+    if (!miss) return '';
+    return `<div class="note">${miss.toLocaleString('en-CA')} of ${all.toLocaleString('en-CA')} orders in this range show “—” because Monthly View has no order number column, and their amounts don’t match any order in Monthly Exploded View (usually partial invoices or adjustments). Adding an Order Number column to Monthly View would link every order.</div>`;
   }
 
   // ---------- View 1: by month ----------
@@ -516,7 +531,7 @@
     const maxBar = bi < 0 ? r.months.reduce((a, m) => Math.max(a, m.count), 0) : r.months.reduce((a, m) => Math.max(a, Math.abs(m.sums[bi])), 0);
     const best = r.months.reduce((a, m) => { const v = bi < 0 ? m.count : m.sums[bi]; return (!a || v > a.v) ? { m: m.month, v } : a; }, null);
     const primTotal = bi < 0 ? r.total.count : r.total.sums[bi];
-    const primName = bi < 0 ? 'Orders' : nice(barCol);
+    const primName = bi < 0 ? 'Orders' : /sub[\s_]*total/i.test(barCol) ? 'Net Sales' : nice(barCol).replace(/\s*\(CAD\)$/, '');
     const f = v => bi < 0 ? v.toLocaleString('en-CA') : fmt(v, barCol);
     const s = v => bi < 0 ? v.toLocaleString('en-CA') : short(v, barCol);
 
@@ -556,6 +571,7 @@
     $('result').innerHTML = shell(tools, (r.dateColumn ? 'Grouped by ' + nice(r.dateColumn) + ' · click a month for its orders, then an order number for its parts' : '') + (r.matched != null ? ' · order numbers matched from Monthly Exploded View by date and net sales' : '')) + `
       ${stats}
       <div class="ledger-wrap"><table class="ledger"><thead>${head}</thead><tbody>${body}</tbody><tfoot>${foot}</tfoot></table></div>
+      ${linkNote(r)}
       ${r.undated ? `<div class="note">${r.undated.toLocaleString('en-CA')} ${r.undated === 1 ? 'row in the sheet has' : 'rows in the sheet have'} no readable date and aren't counted in any month.</div>` : ''}
       ${r.lines ? '' : (r.linesFound === undefined && r.linesError === undefined
         ? '<div class="note">The Apps Script is running the previous version, so orders can’t show their parts yet. Paste the latest code and deploy a new version.</div>'
