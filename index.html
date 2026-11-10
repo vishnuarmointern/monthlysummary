@@ -179,6 +179,8 @@
   .otab td.pn { font-weight: 600; font-variant-numeric: tabular-nums; }
   .otab td.sp { font-weight: 600; }
   .otab td.cur { color: var(--muted); font-size: 12px; }
+  .otab tr.dsub td { background: var(--row); font-weight: 700; font-size: 12.5px; border-bottom: 1px solid var(--line); color: var(--ink); }
+  .otab tr.dsub td:first-child { padding-left: 34px; } .otab tr.dsub td span { font-weight: 500; color: var(--muted); }
   .ptag { font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--warn); background: var(--warn-soft); border-radius: 5px; padding: 1px 5px; margin-left: 4px; vertical-align: 1px; }
   .empty-lines { padding: 12px 14px; color: var(--muted); font-size: 13px; }
   .recon { padding: 8px 12px; font-size: 12px; color: var(--warn); background: var(--warn-soft); border-top: 1px solid var(--line-2); }
@@ -542,6 +544,15 @@
     const head = `<tr><th>${oi >= 0 ? esc(nice(F[oi])) : '#'}</th><th>${esc(nice(F[di] || 'Date'))}</th>` +
       info.map(i => `<th>${esc(nice(F[i]))}</th>`).join('') + amts.map(i => `<th class="r">${esc(nice(F[i]))}</th>`).join('') + '</tr>';
     const val = (v, h) => { const n = typeof v === 'number' ? v : Number(String(v).replace(/[$,\s]/g, '')); return v === '' ? '—' : isFinite(n) ? fmt(n, h) : String(v); };
+    // Subtotal row after each day's orders
+    const daySub = (d, list) => {
+      const sums = amts.map(i => list.reduce((a, row) => { const n = typeof row[i] === 'number' ? row[i] : Number(String(row[i]).replace(/[$,\s]/g, '')); return a + (isFinite(n) ? n : 0); }, 0));
+      const [yy, mm, dd] = String(d).split('-').map(Number);
+      const name = yy && mm && dd ? new Date(yy, mm - 1, dd).toLocaleDateString('en-CA', { weekday: 'short', month: 'short', day: 'numeric' }) : String(d);
+      return `<tr class="dsub"><td colspan="${2 + info.length}">${esc(name)} subtotal <span>· ${list.length} order${list.length === 1 ? '' : 's'}</span></td>` +
+        amts.map((i, k) => `<td class="r">${esc(fmt(Math.round(sums[k] * 100) / 100, F[i]))}</td>`).join('') + '</tr>';
+    };
+    const dayOf = row => String(row[di]).slice(0, 10);
     const rows = m.orders.map((row, k) => {
       const key = oi >= 0 ? row[K] : '', ls = byOrder[key] || [], open = openOrders.has(key + '|' + k) && ls.length;
       const partial = mi >= 0 && row[mi] === 'partial';
@@ -552,6 +563,8 @@
       let h = `<tr class="${open ? 'open' : ''}"><td class="on${oi >= 0 && hasLines ? ' onb' : ''}">${first}</td><td class="dt">${esc(row[di])}</td>` +
         info.map(i => `<td class="info">${esc(row[i])}</td>`).join('') + amts.map(i => `<td class="r">${esc(val(row[i], F[i]))}</td>`).join('') + '</tr>';
       if (open) { const nv = netI !== undefined ? Number(row[netI]) : null; h += `<tr class="odet"><td colspan="${cols}">${orderLines(key, isFinite(nv) ? nv : null, partial)}</td></tr>`; }
+      const d = dayOf(row), next = m.orders[k + 1];
+      if (!next || dayOf(next) !== d) h += daySub(d, m.orders.filter(x => dayOf(x) === d));
       return h;
     }).join('');
     return `<div class="orders"><table class="otab"><thead>${head}</thead><tbody>${rows}</tbody></table></div>`;
