@@ -92,7 +92,7 @@
   select.s { height: 40px; border: 1px solid var(--line); border-radius: 9px; background: var(--paper); padding: 0 30px 0 12px; cursor: pointer; appearance: none;
              background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%237c766a' stroke-width='1.6'/%3E%3C/svg%3E");
              background-repeat: no-repeat; background-position: right 11px center; }
-  select.s.m { min-width: 128px; } select.s.y { min-width: 92px; }
+  select.s.m { min-width: 128px; } select.s.d { min-width: 82px; } select.s.y { min-width: 92px; }
   .arrow { color: var(--faint); padding-bottom: 10px; }
   .pick .b.primary { height: 40px; padding: 0 18px; }
   .presets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
@@ -271,13 +271,13 @@
   <main>
     <section class="range" aria-labelledby="rangeTitle">
       <h1 id="rangeTitle">Choose a date range</h1>
-      <p class="sub" id="rangeSub">Months and years only. Every month in the range gets its own row.</p>
+      <p class="sub" id="rangeSub">Pick a start and end date. Every month in the range gets its own row.</p>
       <form class="pick" id="rangeForm">
         <fieldset><legend>From</legend><div class="pair">
-          <select class="s m" id="fm" aria-label="From month"></select><select class="s y" id="fy" aria-label="From year"></select></div></fieldset>
+          <select class="s m" id="fm" aria-label="From month"></select><select class="s d" id="fd" aria-label="From day"></select><select class="s y" id="fy" aria-label="From year"></select></div></fieldset>
         <span class="arrow" aria-hidden="true">→</span>
         <fieldset><legend>To</legend><div class="pair">
-          <select class="s m" id="tm" aria-label="To month"></select><select class="s y" id="ty" aria-label="To year"></select></div></fieldset>
+          <select class="s m" id="tm" aria-label="To month"></select><select class="s d" id="td" aria-label="To day"></select><select class="s y" id="ty" aria-label="To year"></select></div></fieldset>
         <button class="b primary" id="runBtn" type="submit">Summarize</button>
       </form>
       <div class="presets" id="presets" role="group" aria-label="Quick ranges">
@@ -312,6 +312,12 @@
   const ymOf = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
   const addM = (ym, n) => { const [y, m] = ym.split('-').map(Number); return ymOf(new Date(y, m - 1 + n, 1)); };
   const label = ym => { const [y, m] = ym.split('-').map(Number); return MONTHS[m - 1] + ' ' + y; };
+  const pad2 = n => String(n).padStart(2, '0');
+  const daysIn = (y, m) => new Date(y, m, 0).getDate();
+  const ord = n => n + ((n % 100 >= 11 && n % 100 <= 13) ? 'th' : (['th', 'st', 'nd', 'rd'][n % 10] || 'th'));
+  const firstDay = ym => ym.slice(0, 7) + '-01';
+  const lastDay = ym => { const [y, m] = ym.slice(0, 7).split('-').map(Number); return ym.slice(0, 7) + '-' + pad2(daysIn(y, m)); };
+  const longDate = d => { const [y, m, dd] = d.split('-').map(Number); return MONTHS[m - 1] + ' ' + ord(dd) + ', ' + y; };
 
   let token = store.get('ms_token');
   let meta = null, last = null, barCol = null;
@@ -369,11 +375,20 @@
     ['fm','tm'].forEach(id => { const v = $(id).value; $(id).innerHTML = mo; if (v) $(id).value = v; });
     ['fy','ty'].forEach(id => { const v = $(id).value; $(id).innerHTML = yo; if (v) $(id).value = v; });
   }
-  const getRange = () => ({ from: $('fy').value + '-' + $('fm').value, to: $('ty').value + '-' + $('tm').value });
+  // Day dropdown follows the chosen month/year (1st … 28th/29th/30th/31st)
+  function fillDays(x) {
+    const y = +$(x + 'y').value, m = +$(x + 'm').value; if (!y || !m) return;
+    const n = daysIn(y, m), keep = +$(x + 'd').value || 1;
+    let o = ''; for (let d = 1; d <= n; d++) o += `<option value="${pad2(d)}">${ord(d)}</option>`;
+    $(x + 'd').innerHTML = o; $(x + 'd').value = pad2(Math.min(keep, n));
+  }
+  const getRange = () => ({ from: $('fy').value + '-' + $('fm').value + '-' + ($('fd').value || '01'), to: $('ty').value + '-' + $('tm').value + '-' + ($('td').value || '01') });
+  // Accepts YYYY-MM (from → 1st of the month, to → last day) or YYYY-MM-DD
   function setRange(from, to) {
+    from = from.length === 7 ? firstDay(from) : from; to = to.length === 7 ? lastDay(to) : to;
     fillSelectsFor(from, to);
-    $('fy').value = from.slice(0, 4); $('fm').value = from.slice(5);
-    $('ty').value = to.slice(0, 4); $('tm').value = to.slice(5);
+    $('fy').value = from.slice(0, 4); $('fm').value = from.slice(5, 7); fillDays('f'); $('fd').value = from.slice(8, 10);
+    $('ty').value = to.slice(0, 4); $('tm').value = to.slice(5, 7); fillDays('t'); $('td').value = to.slice(8, 10);
   }
   function fillSelectsFor(from, to) { // make sure both years exist in the dropdowns
     [from, to].forEach(ym => { const y = ym.slice(0, 4);
@@ -387,7 +402,7 @@
     const y = new Date().getFullYear();
     const r = { ytd: [y + '-01', cur], last12: [addM(cur, -11), cur], lastq: [q0, addM(q0, 2)], lasty: [(y - 1) + '-01', (y - 1) + '-12'],
                 all: [meta && meta.first || addM(cur, -11), meta && meta.last || cur] }[p];
-    if (r) setRange(r[0], r[1]);
+    if (r) setRange(firstDay(r[0]), lastDay(r[1]));
     markPreset();
   }
   function markPreset() {
@@ -395,10 +410,11 @@
     const q0 = (() => { const d = new Date(); return ymOf(new Date(d.getFullYear(), Math.floor(d.getMonth() / 3) * 3 - 3, 1)); })();
     const m = { ytd: [y + '-01', cur], last12: [addM(cur, -11), cur], lastq: [q0, addM(q0, 2)], lasty: [(y - 1) + '-01', (y - 1) + '-12'],
                 all: [meta && meta.first, meta && meta.last] };
-    document.querySelectorAll('#presets .chip').forEach(c => { const v = m[c.dataset.p]; c.setAttribute('aria-pressed', String(!!v && v[0] === from && v[1] === to)); });
+    document.querySelectorAll('#presets .chip').forEach(c => { const v = m[c.dataset.p]; c.setAttribute('aria-pressed', String(!!v && !!v[0] && !!v[1] && firstDay(v[0]) === from && lastDay(v[1]) === to)); });
   }
   $('presets').addEventListener('click', e => { const c = e.target.closest('.chip'); if (!c) return; preset(c.dataset.p); run(); });
-  ['fm','fy','tm','ty'].forEach(id => $(id).addEventListener('change', markPreset));
+  ['fm','fy','tm','ty'].forEach(id => $(id).addEventListener('change', () => { fillDays(id[0]); markPreset(); }));
+  ['fd','td'].forEach(id => $(id).addEventListener('change', markPreset));
   $('rangeForm').addEventListener('submit', e => { e.preventDefault(); run(); });
 
   // ---------- Summary ----------
@@ -407,12 +423,14 @@
     if (from > to) { [from, to] = [to, from]; setRange(from, to); }
     markPreset();
     store.set('ms_range', from + '|' + to);
+    const dFrom = from, dTo = to;
     $('runBtn').disabled = true;
     $('result').innerHTML = '<div class="ledger-wrap">' + '<div class="skeleton"></div>'.repeat(5) + '</div>';
     try {
-      const r = await api({ action: 'summary', token, from, to });
+      const r = await api({ action: 'summary', token, from: from.slice(0, 7), to: to.slice(0, 7) });
       if (!r.ok) { $('result').innerHTML = `<div class="placeholder">${esc(r.error || 'Could not build the summary.')}</div>`; return; }
-      if (!last || last.from !== r.from || last.to !== r.to) { openMonths.clear(); openOrders.clear(); openParts.clear(); openPMonths.clear(); }
+      applyDays(r, dFrom, dTo);
+      if (!last || last.dFrom !== r.dFrom || last.dTo !== r.dTo) { openMonths.clear(); openOrders.clear(); openParts.clear(); openPMonths.clear(); }
       last = r; prepare(r);
       if (!barCol || r.columns.indexOf(barCol) < 0) barCol = pickPrimary(r.columns);
       render();
@@ -421,6 +439,22 @@
       if (err.message !== 'auth') $('result').innerHTML = '<div class="placeholder">Could not reach the server. Check your connection and try again.</div>';
     } finally { $('runBtn').disabled = false; }
   }
+  // Keep only orders and part lines dated within the exact days picked; recompute month and grand totals
+  function applyDays(r, from, to) {
+    r.dFrom = from; r.dTo = to;
+    if (from === firstDay(from) && to === lastDay(to)) return; // whole months: server totals already exact
+    const di = r.dateIdx, num = r.numIdx || [], rd = x => Math.round(x * 100) / 100;
+    const inD = d => { d = String(d).slice(0, 10); return d >= from && d <= to; };
+    r.total = { count: 0, sums: num.map(() => 0) };
+    r.months.forEach(m => {
+      m.orders = m.orders.filter(row => inD(row[di])); m.count = m.orders.length;
+      m.sums = num.map(ci => rd(m.orders.reduce((a, row) => { const n = Number(row[ci]); return a + (isFinite(n) ? n : 0); }, 0)));
+      r.total.count += m.count; m.sums.forEach((v, i) => { r.total.sums[i] += v; });
+    });
+    r.total.sums = r.total.sums.map(rd);
+    if (r.lines) r.lines.forEach(l => { l[11] = inD(l[1]) ? 1 : 0; });
+  }
+
   // Headline figure: Net Sales first; never a tax column unless nothing else exists.
   const PRIMARY = [/net\s*sales/i, /\bnet\b/i, /sub\s*total/i, /sales|revenue/i, /^(?!.*tax).*total/i, /amount|value/i];
   const pickPrimary = cols => { for (const re of PRIMARY) { const c = cols.find(h => re.test(h)); if (c) return c; }
@@ -464,7 +498,7 @@
 
   // ---------- Shell: view switch + heading + tools ----------
   function shell(tools, sub) {
-    const r = last, range = r.from === r.to ? label(r.from) : label(r.from) + ' – ' + label(r.to);
+    const r = last, range = r.dFrom ? (r.dFrom === r.dTo ? longDate(r.dFrom) : longDate(r.dFrom) + ' – ' + longDate(r.dTo)) : (r.from === r.to ? label(r.from) : label(r.from) + ' – ' + label(r.to));
     const cur = r.currency || {};
     const curNote = cur.mode === 'convert' && cur.converted ? ` · ${cur.converted.toLocaleString('en-CA')} foreign-currency order${cur.converted === 1 ? '' : 's'} converted at the order's rate` : '';
     return `<div class="viewbar"><div class="seg" role="tablist" aria-label="Organize by">
@@ -712,7 +746,7 @@
       out.push(['Grand total', r.total.count, ...r.total.sums].map(q).join(','));
     }
     const blob = new Blob([out.join('\n')], { type: 'text/csv' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `monthly-summary_${view === 'part' ? 'by-part' : 'by-month'}_${r.from}_to_${r.to}.csv`;
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `monthly-summary_${view === 'part' ? 'by-part' : 'by-month'}_${r.dFrom || r.from}_to_${r.dTo || r.to}.csv`;
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
 
@@ -739,14 +773,14 @@
     $('login').classList.add('hidden'); $('app').classList.remove('hidden');
     fillSelects();
     const saved = (store.get('ms_range') || '').split('|');
-    if (saved.length === 2 && /^\d{4}-\d{2}$/.test(saved[0])) setRange(saved[0], saved[1]); else preset('ytd');
+    if (saved.length === 2 && /^\d{4}-\d{2}(-\d{2})?$/.test(saved[0]) && /^\d{4}-\d{2}(-\d{2})?$/.test(saved[1])) setRange(saved[0], saved[1]); else preset('ytd');
     markPreset();
     try {
       const m = await api({ action: 'meta', token });
       if (m.ok) {
         meta = m; const { from, to } = getRange(); fillSelects(); setRange(from, to); markPreset();
         $('sync').textContent = 'Sheet: ' + m.sheet + ' · ' + (m.rows || 0).toLocaleString('en-CA') + ' dated rows';
-        if (m.first && m.last) $('rangeSub').textContent = `Months and years only. Data runs from ${label(m.first)} to ${label(m.last)}.`;
+        if (m.first && m.last) $('rangeSub').textContent = `Pick a start and end date. Data runs from ${label(m.first)} to ${label(m.last)}.`;
       } else $('sync').textContent = m.error || 'Connected';
     } catch (err) { if (err.message !== 'auth') $('sync').textContent = 'Offline'; }
   }
